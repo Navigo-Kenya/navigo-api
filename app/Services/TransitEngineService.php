@@ -5,16 +5,22 @@ namespace App\Services;
 use App\Models\Stop;
 use Exception;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class TransitEngineService
 {
-    protected string $otpBaseUrl = 'http://127.0.0.1:8080/otp/routers/default';
+    protected string $otpBaseUrl;
+    protected int    $otpCacheTtl;
 
-    // How long (seconds) to cache an identical OTP query.
-    // OTP results are deterministic for the same inputs, so 5 min is safe.
-    protected int $otpCacheTtl = 300;
+    public function __construct(
+        private WalkingService      $walkingService,
+        private SnapToRoadsService  $snapToRoadsService,
+    ) {
+        $this->otpBaseUrl  = config('transit.otp.base_url');
+        $this->otpCacheTtl = config('transit.otp.cache_ttl');
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // STOP LOOKUP
@@ -56,11 +62,11 @@ class TransitEngineService
     public function findJourney( float $fromLat, float $fromLng, float $toLat, float $toLng, ?string $date = null, ?string $time = null, float $walkReluctance = 13.5): ?array
     {
         // $date = $date ?? now()->format('Y-m-d');
-        
+
         // If the AI didn't provide a date/time, use 'now'
         $resolvedDate = $date ?? now()->timezone('Africa/Nairobi')->format('Y-m-d');
         $resolvedTime = $time ?? now()->timezone('Africa/Nairobi')->format('h:ia');
-        
+
         // NIGHTTIME DEV HACK: Only apply if the AI/User didn't request a specific future time
         if (!$date && !$time) {
             $hour = (int) now()->timezone('Africa/Nairobi')->format('H');
@@ -71,11 +77,11 @@ class TransitEngineService
 
         $cacheKey = 'otp:journey:' . md5("{$fromLat},{$fromLng},{$toLat},{$toLng},{$resolvedDate},{$resolvedTime},{$walkReluctance}");
 
-        return Cache::remember($cacheKey, $this->otpCacheTtl, function () use (
-            $fromLat, $fromLng, $toLat, $toLng, $resolvedDate, $resolvedTime, $walkReluctance
-        ) {
-            return $this->fetchFromOtp($fromLat, $fromLng, $toLat, $toLng, $resolvedDate, $resolvedTime, $walkReluctance);
-        });
+        return Cache::remember(
+            $cacheKey,
+            $this->otpCacheTtl,
+            fn () => $this->fetchFromOtp($fromLat, $fromLng, $toLat, $toLng, $resolvedDate, $resolvedTime, $walkReluctance)
+        );
     }
 
     private function fetchFromOtp( float $fromLat, float $fromLng, float $toLat, float $toLng, string $date, string $time, float $walkReluctance): ?array
@@ -114,6 +120,40 @@ class TransitEngineService
         }
     }
 
+    /**
+     * Decodes a Google Polyline5-encoded string into [[lat, lng], ...] pairs.
+     * OTP emits this format in legGeometry.points — no external library required.
+     */
+    private function decodePolyline(string $encoded): array
+    {
+        $coords = [];
+        $index  = 0;
+        $len    = \strlen($encoded);
+        $lat    = 0;
+        $lng    = 0;
+
+        while ($index < $len) {
+            foreach (['lat', 'lng'] as $axis) {
+                $shift  = 0;
+                $result = 0;
+                do {
+                    $b      = \ord($encoded[$index++]) - 63;
+                    $result |= ($b & 0x1f) << $shift;
+                    $shift  += 5;
+                } while ($b >= 0x20 && $index < $len);
+                $delta = ($result & 1) ? ~($result >> 1) : ($result >> 1);
+                if ($axis === 'lat') {
+                    $lat += $delta;
+                } else {
+                    $lng += $delta;
+                }
+            }
+            $coords[] = [round($lat / 1e5, 6), round($lng / 1e5, 6)];
+        }
+
+        return $coords;
+    }
+
     private function parseItinerary(array $itinerary): array
     {
         $segments      = [];
@@ -123,10 +163,11 @@ class TransitEngineService
         $transitModes = ['BUS', 'TRAM', 'SUBWAY', 'RAIL', 'FERRY'];
 
         foreach ($itinerary['legs'] as $leg) {
-            $mode       = $leg['mode'];
-            $isTransit  = in_array($mode, $transitModes, true);
-            $routeName  = $leg['routeShortName'] ?? $leg['route'] ?? $leg['routeLongName'] ?? null;
-            $distance   = $leg['distance'] ?? 0;
+            $mode      = $leg['mode'];
+            $isTransit = \in_array($mode, $transitModes, true);
+            $routeName = $leg['routeShortName'] ?? $leg['route'] ?? $leg['routeLongName'] ?? null;
+            $distance  = $leg['distance'] ?? 0;
+            $duration  = (int) round($leg['duration'] ?? 0);
 
             $totalDistance += $distance;
 
@@ -136,38 +177,63 @@ class TransitEngineService
 
             $fromName = $leg['from']['name'] ?? 'Unknown';
             $toName   = $leg['to']['name']   ?? 'Unknown';
+            $encoded  = $leg['legGeometry']['points'] ?? '';
+            $otpCoords = $encoded ? $this->decodePolyline($encoded) : [];
 
-            // Extract turn-by-turn walk steps
-            $walkSteps = [];
-            if (isset($leg['steps'])) {
-                foreach ($leg['steps'] as $step) {
-                    $direction = $step['relativeDirection'] ?? 'Continue';
-                    $street = $step['streetName'] ?? 'path';
-                    if ($street === 'OpenStreetMap') $street = 'pedestrian path';
-
-                    $walkSteps[] = [
-                        'instruction' => "{$direction} on {$street}",
-                        'distance' => round($step['distance'] ?? 0),
-                        'location' => [(float)$step['lon'], (float)$step['lat']],
-                    ];
+            if ($isTransit) {
+                // ── Transit: GTFS shape → snap to roads → OTP fallback ─────────
+                // 1. Try authoritative GTFS shape from our DB.
+                // 2. Snap result to real roads via Google Roads API (DB-cached).
+                // 3. If Roads API is unavailable, the raw coords are returned as-is.
+                $rawCoords   = $this->gtfsCoordinates($leg) ?? $otpCoords;
+                $cacheKey    = $this->transitSnapKey($leg);
+                $coordinates = $this->snapToRoadsService->snap($rawCoords, $cacheKey);
+                $walkSteps   = [];
+            } else {
+                // ── Walking: use Google Directions API (road-snapped) ──────────
+                // DB-cached permanently; falls back to OTP when walk < 100 m.
+                $otpSteps = [];
+                if (isset($leg['steps'])) {
+                    foreach ($leg['steps'] as $step) {
+                        $street = $step['streetName'] ?? 'path';
+                        if ($street === 'OpenStreetMap') $street = 'pedestrian path';
+                        $otpSteps[] = [
+                            'instruction' => ($step['relativeDirection'] ?? 'Continue') . " on {$street}",
+                            'distance'    => (int) round($step['distance'] ?? 0),
+                            'lat'         => (float) ($step['lat'] ?? 0),
+                            'lng'         => (float) ($step['lon'] ?? 0),
+                        ];
+                    }
                 }
+
+                $walking = $this->walkingService->getRoute(
+                    (float) $leg['from']['lat'], (float) $leg['from']['lon'],
+                    (float) $leg['to']['lat'],   (float) $leg['to']['lon'],
+                    $otpCoords,
+                    $otpSteps,
+                    (int) round($distance),
+                    $duration
+                );
+
+                $coordinates = $walking['coordinates'];
+                $walkSteps   = $walking['walk_steps'];
+                $distance    = $walking['distance'];
+                $duration    = $walking['duration'];
             }
 
-            Log::info("Walk steps for leg from '{$fromName}' to '{$toName}'", ['steps' => $walkSteps]);
-
             $segments[] = [
-                'mode'       => $mode,
-                'duration'   => (int) round($leg['duration'] ?? 0),
-                'distance'   => (int) round($distance),
-                'route_name' => $routeName,
-                'polyline'   => $leg['legGeometry']['points'] ?? '',
-                'walk_steps' => $walkSteps, // Include the walk steps in the segment
-                'from'       => [
+                'mode'        => $mode,
+                'duration'    => $duration,
+                'distance'    => (int) round($distance),
+                'route_name'  => $routeName,
+                'coordinates' => $coordinates,
+                'walk_steps'  => $walkSteps,
+                'from'        => [
                     'name' => $fromName === 'Origin'      ? 'Current Location' : $fromName,
                     'lat'  => $leg['from']['lat'],
                     'lng'  => $leg['from']['lon'],
                 ],
-                'to'         => [
+                'to'          => [
                     'name' => $toName === 'Destination' ? 'Destination' : $toName,
                     'lat'  => $leg['to']['lat'],
                     'lng'  => $leg['to']['lon'],
@@ -178,14 +244,99 @@ class TransitEngineService
         $uniqueRouteNames = array_values(array_unique($routeNames));
 
         return [
-            'type'               => count($uniqueRouteNames) > 1 ? 'transfer' : 'direct',
-            'summary'            => count($uniqueRouteNames) > 0
+            'polyline_encoding'   => 'google',
+            'type'                => \count($uniqueRouteNames) > 1 ? 'transfer' : 'direct',
+            'summary'             => \count($uniqueRouteNames) > 0
                 ? 'Via ' . implode(' → ', $uniqueRouteNames)
                 : 'Walk only',
-            'total_duration'     => (int) round($itinerary['duration']),
-            'total_walk_distance'=> (int) round($itinerary['walkDistance']),
-            'total_distance'     => (int) round($totalDistance),
-            'segments'           => $segments,
+            'total_duration'      => (int) round($itinerary['duration']),
+            'total_walk_distance' => (int) round($itinerary['walkDistance']),
+            'total_distance'      => (int) round($totalDistance),
+            'segments'            => $segments,
         ];
+    }
+
+    /**
+     * Builds a deterministic snap-cache key for a transit leg.
+     * Prefers trip+stop IDs (exact match); falls back to rounded coords.
+     */
+    private function transitSnapKey(array $leg): string
+    {
+        $strip = fn (string $id) => str_contains($id, ':') ? explode(':', $id, 2)[1] : $id;
+
+        $tripId     = isset($leg['tripId'])         ? $strip($leg['tripId'])         : null;
+        $fromStopId = isset($leg['from']['stopId']) ? $strip($leg['from']['stopId']) : null;
+        $toStopId   = isset($leg['to']['stopId'])   ? $strip($leg['to']['stopId'])   : null;
+
+        if ($tripId && $fromStopId && $toStopId) {
+            return "transit:{$tripId}:{$fromStopId}:{$toStopId}";
+        }
+
+        // Coord-based fallback (rounded to 4 dp ≈ 11 m bucket)
+        $fLat = round((float) ($leg['from']['lat'] ?? 0), 4);
+        $fLng = round((float) ($leg['from']['lon'] ?? 0), 4);
+        $tLat = round((float) ($leg['to']['lat']   ?? 0), 4);
+        $tLng = round((float) ($leg['to']['lon']   ?? 0), 4);
+
+        return "transit:{$fLat},{$fLng}:{$tLat},{$tLng}";
+    }
+
+    /**
+     * Slices the GTFS shape LineString for a transit leg between the two stops
+     * using PostGIS ST_LineLocatePoint + ST_LineSubstring.
+     *
+     * Returns [[lat, lng], ...] or null if the trip/shape is not in our DB.
+     */
+    private function gtfsCoordinates(array $leg): ?array
+    {
+        $tripId     = $leg['tripId']        ?? null;
+        $fromStopId = $leg['from']['stopId'] ?? null;
+        $toStopId   = $leg['to']['stopId']   ?? null;
+
+        if (!$tripId || !$fromStopId || !$toStopId) {
+            return null;
+        }
+
+        // OTP prefixes IDs with the feed/agency name: "agency:TRIP001" → "TRIP001"
+        $strip = fn (string $id) => \str_contains($id, ':') ? explode(':', $id, 2)[1] : $id;
+        $tripId     = $strip($tripId);
+        $fromStopId = $strip($fromStopId);
+        $toStopId   = $strip($toStopId);
+
+        try {
+            $row = DB::selectOne("
+                SELECT ST_AsGeoJSON(
+                    ST_LineSubstring(
+                        s.path,
+                        LEAST(
+                            ST_LineLocatePoint(s.path, fs.location::geometry),
+                            ST_LineLocatePoint(s.path, ts.location::geometry)
+                        ),
+                        GREATEST(
+                            ST_LineLocatePoint(s.path, fs.location::geometry),
+                            ST_LineLocatePoint(s.path, ts.location::geometry)
+                        )
+                    )
+                ) AS geojson
+                FROM  trips  t
+                JOIN  shapes s  ON s.shape_id  = t.shape_id
+                JOIN  stops  fs ON fs.id       = ?
+                JOIN  stops  ts ON ts.id       = ?
+                WHERE t.trip_id = ?
+            ", [$fromStopId, $toStopId, $tripId]);
+
+            if ($row && $row->geojson) {
+                $geojson = json_decode($row->geojson, true);
+                // GeoJSON coords are [lng, lat] — convert to our [lat, lng] convention
+                return \array_map(fn ($c) => [$c[1], $c[0]], $geojson['coordinates'] ?? []);
+            }
+        } catch (\Exception $e) {
+            Log::warning('GTFS shape lookup failed', [
+                'trip_id' => $tripId,
+                'error'   => $e->getMessage(),
+            ]);
+        }
+
+        return null;
     }
 }

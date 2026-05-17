@@ -12,9 +12,10 @@ Route::get('/user', function (Request $request) {
 
 Route::prefix('v1')->group(function () {
     // Geolocation & Stops
+    Route::get('/stops/all',    [LocationController::class, 'all']);
     Route::get('/stops/nearby', [LocationController::class, 'nearby']);
-    // Search for stops by text
     Route::get('/stops/search', [LocationController::class, 'search']);
+    Route::get('/stops/{id}',   [LocationController::class, 'show']);
 
     // The Core Trip Engine Endpoint
     Route::post('/journey/calculate', [RouteController::class, 'calculate']);

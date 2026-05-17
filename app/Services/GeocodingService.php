@@ -13,15 +13,13 @@ class GeocodingService
     {
         if (strtolower(trim($query)) === 'current location') return null;
 
-        // ── 1. CHECK YOUR LOCAL MATATU DATABASE (Tiered Search) ──
-        
-        // Tier 1: Exact Match (e.g., user says exactly "Kencom")
+        // ── 1. LOCAL MATATU DATABASE (Tiered Search) ──
+
         $localStop = Stop::select('name')
             ->selectRaw("ST_Y(location::geometry) as extracted_lat, ST_X(location::geometry) as extracted_lng")
             ->where('name', 'ILIKE', $query)
             ->first();
 
-        // Tier 2: Starts With (e.g., user says "Cabanas", matches "Cabanas Stage")
         if (!$localStop) {
             $localStop = Stop::select('name')
                 ->selectRaw("ST_Y(location::geometry) as extracted_lat, ST_X(location::geometry) as extracted_lng")
@@ -29,7 +27,6 @@ class GeocodingService
                 ->first();
         }
 
-        // Tier 3: Contains (Fallback)
         if (!$localStop) {
             $localStop = Stop::select('name')
                 ->selectRaw("ST_Y(location::geometry) as extracted_lat, ST_X(location::geometry) as extracted_lng")
@@ -37,50 +34,64 @@ class GeocodingService
                 ->first();
         }
 
-        if ($localStop && $localStop->extracted_lat) {
+        if ($localStop?->extracted_lat) {
             Log::info("Found location in Local DB: {$query}");
             return [
-                'lat' => (float) $localStop->extracted_lat,
-                'lng' => (float) $localStop->extracted_lng,
-                'name' => $localStop->name,
-                'source' => 'local_db'
+                'lat'    => (float) $localStop->extracted_lat,
+                'lng'    => (float) $localStop->extracted_lng,
+                'name'   => $localStop->name,
+                'source' => 'local_db',
             ];
         }
 
-        // ── 2. FALLBACK TO MAPBOX FOR GENERAL PLACES ──
-        Log::info("Not in DB, falling back to Mapbox for: {$query}");
-        $token = env('MAPBOX_API_KEY');
-        
-        $mapboxQuery = $query;
-        if (stripos($mapboxQuery, 'Nairobi') === false) {
-            $mapboxQuery .= ' Nairobi';
+        // ── 2. FALLBACK TO GOOGLE MAPS GEOCODING ──
+        Log::info("Not in DB, falling back to Google Maps for: {$query}");
+
+        $apiKey    = env('GOOGLE_MAPS_API_KEY');
+        $mapsQuery = $query;
+        if (stripos($mapsQuery, 'Nairobi') === false) {
+            $mapsQuery .= ', Nairobi';
         }
 
-        $url = "https://api.mapbox.com/geocoding/v5/mapbox.places/" . urlencode($mapboxQuery) . ".json";
-        $cacheKey = "geocode:" . md5($mapboxQuery);
+        // Build proximity bias params in outer scope so static analysis can track them
+        $proximityParams = [];
+        if ($proxLat && $proxLng) {
+            $proximityParams['location'] = "{$proxLat},{$proxLng}";
+            $proximityParams['radius']   = 30000;
+        }
 
-        return Cache::remember($cacheKey, 86400, function () use ($url, $token, $query, $proxLat, $proxLng) {
+        $cacheKey = 'geocode:' . md5($mapsQuery);
+
+        return Cache::remember($cacheKey, 86400, function () use ($mapsQuery, $apiKey, $query, $proximityParams) {
             try {
-                $params = [
-                    'access_token' => $token,
-                    'country'      => 'ke', 
-                    'limit'        => 1,
-                    'bbox'         => '36.6,-1.45,37.1,-1.15' 
-                ];
+                $params = array_merge([
+                    'address'    => $mapsQuery,
+                    'key'        => $apiKey,
+                    'region'     => 'ke',
+                    'components' => 'country:KE',
+                ], $proximityParams);
 
-                $response = Http::withoutVerifying()->timeout(5)->get($url, $params);
+                $response = Http::withoutVerifying()->timeout(5)->get(
+                    'https://maps.googleapis.com/maps/api/geocode/json',
+                    $params
+                );
 
-                if ($response->successful() && !empty($response->json('features'))) {
-                    $feature = $response->json('features')[0];
+                if ($response->successful() && !empty($response->json('results'))) {
+                    $result   = $response->json('results')[0];
+                    $location = $result['geometry']['location'];
+                    $name     = $result['address_components'][0]['long_name']
+                        ?? str_ireplace(', Nairobi', '', $result['formatted_address']);
+
                     return [
-                        'lng' => (float) $feature['center'][0],
-                        'lat' => (float) $feature['center'][1],
-                        'name' => str_ireplace(' Nairobi', '', $feature['text']),
+                        'lat'  => (float) $location['lat'],
+                        'lng'  => (float) $location['lng'],
+                        'name' => $name,
                     ];
                 }
+
                 return null;
             } catch (\Exception $e) {
-                Log::error("Geocoding Error for '{$query}': " . $e->getMessage());
+                Log::error("Google Geocoding Error for '{$query}': " . $e->getMessage());
                 return null;
             }
         });

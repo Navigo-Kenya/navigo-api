@@ -29,6 +29,18 @@ class LocationController extends Controller
         return StopResource::collection($stops);
     }
 
+    public function all()
+    {
+        return response()->json(['data' => $this->locationService->getAllStops()]);
+    }
+
+    public function show(string $id)
+    {
+        $stop = $this->locationService->getStop($id);
+        if (!$stop) return response()->json(['error' => 'Stop not found'], 404);
+        return response()->json(['data' => $stop]);
+    }
+
     public function search(Request $request)
     {
         $validated = $request->validate(['q' => 'required|string|min:2']);
