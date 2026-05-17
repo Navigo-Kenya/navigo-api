@@ -364,48 +364,188 @@ php artisan test --filter=RouteCalculationTest
 
 ## Roadmap
 
-The items below are actively planned. Architecture decisions made today (session IDs, `UserContext`, alias resolution) are designed to slot these in without breaking changes.
+The items below are actively planned. Architecture decisions made today — session IDs, `UserContext`, alias resolution, the `aliases` payload shape — are deliberately designed to slot each of these phases in without breaking changes to the existing pipeline.
+
+---
 
 ### Authentication & User Profiles
 
 - Laravel Sanctum token authentication
 - User registration / login endpoints
-- Saved alias addresses — `home`, `work`, `school` stored per user in the database
-- Once a user is authenticated, `AiAssistantService` will receive their real address coordinates instead of the current GPS fallback, with zero code changes required in the routing pipeline
+- Saved alias addresses — `home`, `work`, `school` stored per user in the database; coordinates sent to `AiAssistantService` via the existing `aliases` payload with zero changes to the routing pipeline
+- Profile photo, preferred language, accessibility preferences
+
+---
 
 ### Favourite Stops & Routes
 
-- Endpoints to save, list, and delete favourite stops
-- Favourite route suggestions surfaced in AI responses
+- Endpoints to save, list, and delete favourite stops and routes
+- Favourite stops surfaced as quick-pick suggestions in Kwame
+- Commute pattern detection — if a user travels the same route every weekday morning, Kwame proactively surfaces departure times before being asked
+
+---
 
 ### Real-Time Transit
 
-- Integration with a real-time vehicle location feed (GTFS-RT or proprietary Nairobi data source)
-- Departure boards: live next-departure times per stop
-- WebSocket / SSE channel for in-trip position updates
+- Integration with a GTFS-RT feed (or a proprietary Nairobi vehicle-location data source once the IoT network below is operational)
+- Departure boards: live next-departure times per stop, accessible via `GET /stops/{id}/departures`
+- WebSocket / SSE channel for in-trip position updates pushed to the mobile client
+- Kwame aware of real-time delays — can say "the 23 is running 8 minutes late, want me to find an alternative?"
+
+---
 
 ### Push Notifications
 
-- "Your matatu is 2 stops away" alerts
-- Service disruption warnings
-- Arrival reminders
+- "Your matatu is 2 stops away" alerts triggered by real-time vehicle position
+- Service disruption warnings per subscribed route
+- Arrival reminders set by the user ("remind me 10 minutes before I need to leave for work")
+- Implemented via Firebase Cloud Messaging; device tokens stored per authenticated user
+
+---
 
 ### Fare Estimation
 
-- Distance-based fare calculation per matatu segment
-- M-Pesa deep-link integration (pay within the app)
+- Distance-based and route-based fare matrix per SACCO (once SACCO partnership data is available)
+- Fare breakdown surfaced in the route card and in Kwame's spoken response
+- Historical fare data used to flag price gouging during peak hours
+
+---
+
+### Smart Transit Network — Integrated Ticketing & SACCO Partnerships
+
+> This is the long-term flagship initiative for Hopln — a Navigo-inspired digital transit network built for Nairobi. Navigo (Paris) turned the entire RATP network into a single, seamless subscription card. Hopln's ambition is to do the same for Nairobi's fragmented, SACCO-operated matatu ecosystem: one app, one pass, every route.
+>
+> Unlike Paris where a single public authority (RATP) controls all transit, Nairobi's network is owned and operated by dozens of independent SACCOs (Savings and Credit Co-operative Organisations). Each SACCO controls one or more matatu routes, sets its own fares, and manages its own fleet. **The entire ticketing initiative is therefore contingent on establishing commercial and technical partnerships with these SACCOs first.** What follows is the phased plan once that foundation is in place.
+
+#### Phase 1 — SACCO Onboarding & Partnership Infrastructure
+
+Before any physical device can go on a bus, Hopln must become a trusted partner to the SACCOs that run those buses.
+
+- **SACCO registration portal**: a web dashboard where a SACCO administrator can register their organisation, verify their routes against the existing GTFS data, and accept the revenue-sharing terms
+- **Route ownership model**: each GTFS route is linked to a verified SACCO entity in the database; fare rules, operating hours, and fleet size are managed per SACCO
+- **Revenue distribution engine**: when a user buys a ticket or subscription that covers multiple SACCOs, the collected fare is automatically split and disbursed to each relevant SACCO's account (M-Pesa Paybill integration)
+- **SACCO dashboard API**: endpoints exposing per-route ridership, revenue, and on-time performance data back to SACCO administrators, giving them a concrete incentive to participate
+- **New models**: `Sacco`, `SaccoRoute` (join), `FareRule`, `RevenueTransaction`
+
+#### Phase 2 — IoT Infrastructure: Onboarding Devices
+
+The physical layer that turns a matatu fleet into a connected network. Two classes of device are deployed:
+
+**In-bus devices (one per vehicle):**
+
+| Capability | Purpose |
+|-----------|---------|
+| GPS tracker (4G) | Vehicle position broadcast every 5 seconds to the Hopln backend |
+| Passenger validator | NFC reader + QR scanner for ticket validation at boarding |
+| Passenger counter | Infrared or ultrasonic sensor counting boardings and alightings |
+| On-board display | Small screen showing route name, next stop, and seat availability |
+| Unique bus ID | Each device is permanently linked to a fleet number and SACCO |
+
+**At-stop devices (one per major stop):**
+
+| Capability | Purpose |
+|-----------|---------|
+| NFC pad | Tap-to-pay for single-journey tickets |
+| QR scanner | Scan a ticket QR code for validation |
+| Arrival display | Live departure board showing next 3 matatus per route |
+| Unique stop ID | Links physical hardware to the GTFS `stop_id` |
+
+The backend receives a continuous stream from these devices via a lightweight MQTT broker (or a dedicated ingestion endpoint). A new `VehiclePosition` model and `StopEvent` model persist this data; GTFS-RT feeds are generated from it for consumption by OpenTripPlanner, closing the loop between live data and route planning.
+
+```
+In-bus device  ──► MQTT broker  ──► VehiclePositionIngestionJob (queued)
+                                          │
+                               ┌──────────┼──────────────┐
+                               ▼          ▼              ▼
+                     VehiclePosition   StopEvent    GTFS-RT feed
+                     (PostGIS point)   (boarding)   (→ OTP)
+```
+
+#### Phase 3 — Digital Ticketing (Single Journey)
+
+With devices deployed, single-journey cashless tickets become possible.
+
+- **Ticket purchase**: user selects a route and boarding stop in the app → Hopln generates a signed, time-limited QR code (valid for 15 minutes) → user pays via M-Pesa STK Push
+- **Ticket validation**: conductor's device or stop device scans the QR code → backend verifies signature and marks the ticket as used → confirmation sent to user and conductor
+- **NFC boarding**: for users with NFC-enabled phones, tap replaces QR scan
+- **Conductor app**: a lightweight companion app (separate from the passenger app) for conductors to manually validate tickets offline if the device is temporarily disconnected
+- **Fare calculation**: automatically derived from the boarding stop and alighting stop registered by the in-bus counter, eliminating arguments over fare amounts
+- **New models**: `Ticket`, `TicketValidation`, `Payment`
+- **New endpoints**: `POST /tickets/purchase`, `POST /tickets/validate`, `GET /tickets/{id}`
+
+#### Phase 4 — Subscription Passes (Navigo-inspired)
+
+Once single-journey ticketing is operational and SACCO coverage is broad enough, subscription passes become viable.
+
+**Pass types:**
+
+| Pass | Coverage | Billing |
+|------|----------|---------|
+| Single Route Pass | One specific route, unlimited trips | Monthly |
+| Zone Pass | All routes within a defined geographic zone | Monthly |
+| City Pass | All Hopln-partnered routes across Nairobi | Monthly or Annual |
+| Corporate Pass | City Pass purchased in bulk by an employer for employees | Monthly per seat |
+
+- Passes are stored as a `Subscription` model linked to the user; the validation endpoint checks for an active subscription before requiring a single-journey ticket
+- M-Pesa recurring payment via Daraja API (automatic monthly debit with user consent)
+- Passes are transferable to NFC (if the user's phone supports HCE) — tap in, tap out, exactly like Navigo
+- Partial-month proration for new subscribers
+- Grace period (48 hours) before a lapsed subscription is deactivated to handle payment delays
+- Kwame is aware of the user's active subscription and factors it into trip advice ("you're covered on the 23 — just tap in as usual")
+
+#### Phase 5 — Smart In-App Experience
+
+With real-time vehicle data flowing from the IoT network, the mobile app gains a new class of features that are impossible without it.
+
+**Knowing which bus you're on:**
+
+When a user boards a matatu and taps in (QR or NFC), the backend associates their session with the specific vehicle's `bus_id`. From that moment:
+
+- The map shows the user's own bus as a highlighted marker, distinct from other vehicles on the same route
+- The app displays the live position of the bus relative to the user's destination, with a dynamically recalculated ETA
+- "You are on bus KCB 734Y, route 23 — next stop: Yaya Centre (2 min)"
+- If the bus deviates from the expected route (e.g., a traffic diversion), the app detects it and Kwame proactively suggests alternatives
+
+**Occupancy & comfort:**
+
+- The in-bus passenger counter exposes live seat availability per vehicle
+- Users can see before boarding whether a matatu is full, half-full, or nearly empty
+- Kwame can factor occupancy into route recommendations: "The next 23 in 3 minutes is already full — the one after in 8 minutes has plenty of room"
+
+**End-to-end journey tracking:**
+
+- When a user starts a trip from the app, the backend monitors their progress through the boarding events from the IoT network — no GPS polling from the phone required
+- Automatic trip completion detection: when the user alights, the trip is marked done and a receipt is generated
+- Journey history stored per user: route taken, fare paid, duration, on-time performance
+
+**New API surface introduced by this phase:**
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /vehicles/{id}/position` | Live GPS position of a specific bus |
+| `GET /routes/{id}/vehicles` | All active buses on a route with positions and occupancy |
+| `GET /stops/{id}/departures` | Live next-departure board for a stop |
+| `POST /trips/{id}/board` | Associate user session with a vehicle (tap-in event) |
+| `POST /trips/{id}/alight` | Record alighting (tap-out event), finalise fare |
+| `GET /users/me/trips` | Paginated journey history for the authenticated user |
+
+---
 
 ### Community Contributions
 
-- Crowd-sourced stop corrections (name, location)
-- Missing stop reports fed into a moderation queue
-- Contribution history and trust scoring per user
+- Crowd-sourced stop corrections (name, location) submitted through the app and fed into a moderation queue
+- Missing stop reports with photo evidence
+- Contribution history and trust scoring per user — high-trust contributors can have their corrections auto-approved
+- SACCO administrators can endorse or reject community-submitted changes for their routes
+
+---
 
 ### Analytics & Observability
 
-- Per-session AI conversation metrics (turns, tool-call rate, route success rate)
-- Grafana dashboards for OTP cache hit rates and geocoding fallback frequency
-- Structured logging for all AI pipeline stages
+- Per-session AI conversation metrics: turns per session, tool-call rate, route success rate, fallback-to-Google-Maps rate
+- Grafana dashboards for OTP cache hit rates, geocoding pipeline latency, and AI pipeline stage timings
+- Structured logging for every stage of the AI pipeline (Whisper → GPT → geocoding → OTP → TTS)
+- Once IoT devices are live: fleet-wide on-time performance, average route durations, stop dwell times, and peak-hour occupancy heatmaps
 
 ---
 
