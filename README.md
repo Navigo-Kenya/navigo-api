@@ -31,13 +31,14 @@ Hopln API is the server-side backbone of the **Hopln** mobile application — a 
 ## Table of Contents
 
 1. [Architecture](#architecture)
-2. [API Reference](#api-reference)
-3. [Services](#services)
-4. [Data Models](#data-models)
-5. [Getting Started](#getting-started)
-6. [Environment Variables](#environment-variables)
-7. [Running Tests](#running-tests)
-8. [Roadmap](#roadmap)
+2. [Transit Data Strategy](#transit-data-strategy)
+3. [API Reference](#api-reference)
+4. [Services](#services)
+5. [Data Models](#data-models)
+6. [Getting Started](#getting-started)
+7. [Environment Variables](#environment-variables)
+8. [Running Tests](#running-tests)
+9. [Roadmap](#roadmap)
 
 ---
 
@@ -91,6 +92,136 @@ POST /journey/ai-plan
   └─ 5. Parallel TTS generation (holding phrase + final response)
          └─ Returns: route JSON + spoken_response + tts_audio (base64 MP3)
 ```
+
+---
+
+## Transit Data Strategy
+
+This section explains the data foundation Hopln is built on, why it is reliable today, where its limits are, and the engineering decisions that close the gap between a static schedule and the unpredictable reality of Nairobi's streets.
+
+---
+
+### The Digital Matatus Foundation
+
+Hopln's routing data originates from the **Digital Matatus project** — a collaboration between the University of Nairobi, Columbia University, and Groupshot that produced the first complete GTFS dataset for Nairobi's informal transit network. The dataset maps every named matatu and bus route in the city: stop locations, route alignments, and transfer points.
+
+This is the backbone of the `nairobi-otp/` OpenTripPlanner instance and the PostGIS stop database. It gives Hopln two things that simply did not exist in any app before:
+
+- A reliable answer to "which routes serve this area?"
+- A reliable answer to "how do I transfer between two routes?"
+
+**What GTFS does well in Nairobi:** stop proximity queries, route discovery, multi-leg journey planning, and walking-distance estimates. These are valuable and largely accurate because the physical route alignments change slowly.
+
+**Where static GTFS falls short:** matatus are *fill-and-go*, not scheduled. A GTFS timetable implies a bus departs at 08:14 — a concept that does not exist in Nairobi. Departure frequency varies by time of day, day of week, traffic, weather, and how quickly the previous vehicle filled. A static feed cannot capture any of this, which is why real-time data from the IoT network (described in the Roadmap) is a prerequisite for departure-time accuracy.
+
+---
+
+### From Static to Realtime — The GTFS-RT Loop
+
+The transition from static reliability to realtime reliability requires closing a data loop. Every SACCO management device deployed on a vehicle does not only serve the SACCO — it feeds the algorithm.
+
+```
+SACCO dispatches vehicle
+        │
+        ▼
+In-bus GPS device broadcasts position every 5 s
+        │
+        ▼
+Hopln backend ingests position stream
+        │
+   ┌────┴───────────────────────────────────────┐
+   ▼                                            ▼
+VehiclePosition table                   GTFS-RT feed generated
+(PostGIS point, heading, speed)         (TripUpdate + VehiclePosition)
+                                                │
+                                                ▼
+                                        OpenTripPlanner reloads
+                                        (live departure predictions)
+                                                │
+                                                ▼
+                                        Passenger app shows
+                                        accurate next-departure times
+```
+
+This loop is the core strategic value of building the SACCO management platform. SACCOs adopt it for operational reasons (stage queuing, turnaround metrics, NTSA compliance); Hopln benefits from the GPS stream as a byproduct. Neither side has to do extra work once the devices are installed — the data flows automatically.
+
+---
+
+### The Nairobi Algorithm Factors
+
+Standard GTFS-RT assumes a bus follows a fixed timetable and can be predicted by interpolating between scheduled stops. That model breaks down in Nairobi. The routing algorithm must account for two behaviours that are unique to informal transit networks and absent from any European transit API:
+
+#### Fill-Time Factor
+
+Matatus do not depart on a schedule — they depart when full (or nearly full). At major termini like **Railway Station**, **Khoja**, or **Westlands Stage**, a vehicle can sit idle for anywhere from 2 minutes to 25 minutes waiting to fill, depending on time of day, weather, and competing vehicles on the same route.
+
+The Fill-Time Factor is a per-terminus, per-route, per-time-of-day estimate of this idle wait time, derived from historical GPS departure data. It is added to the algorithm's ETA calculation as a dwell penalty before the first departure event, not after boarding.
+
+Without it, the algorithm would tell a user "the next 23 leaves in 1 minute" when the vehicle is physically present at the stage but still loading — creating false expectations and missed connections.
+
+As GPS data accumulates, the Fill-Time Factor is refined per route and per terminus using a rolling average weighted toward recent observations (traffic and loading patterns shift seasonally).
+
+#### Mshukiwa Factor
+
+*Mshukiwa* (Swahili: the one being dropped off) refers to the common practice of matatu drivers making unscheduled stops along the route to pick up or discharge passengers at locations that are not designated GTFS stops. This is near-universal on high-demand corridors like Ngong Road, Thika Road, and Mombasa Road.
+
+The Mshukiwa Factor adjusts the per-segment travel-time estimate on a given route to account for these micro-stops. A segment that nominally takes 4 minutes based on distance and average speed may routinely take 7–9 minutes during morning peak because of roadside loading activity.
+
+This factor is derived from the difference between GPS-observed segment durations and OTP's theoretical estimates, averaged across all vehicles on the route over a rolling 30-day window. It is applied as a per-segment multiplier during journey planning, improving ETA accuracy without requiring any change to the underlying GTFS data.
+
+---
+
+### SACCO Adoption Strategy — Solving Real Operational Pain
+
+SACCOs will not adopt a platform because it benefits passengers. They will adopt it because it reduces their own friction. Three specific problems in daily SACCO operations are the entry points:
+
+#### 1. The Stage Queue — Digitising the Notebook
+
+At every major terminus, a *stage manager* (sometimes called a *dispatcher* locally) currently keeps a handwritten notebook recording which vehicle arrived first and which is next in line to load. This notebook is the only source of truth for departure order and is prone to disputes, bribes, and lost records.
+
+HoplnOS digitises this queue. When a vehicle arrives at the terminus and its IoT device is detected in the geofenced zone, it is automatically added to the queue with a timestamp. The stage manager sees a live, ordered list on a tablet — no paper, no disputes, verifiable history. This single feature has direct financial implications for every driver: fair queue position means predictable income.
+
+This is the primary pitch to any SACCO: *"We will stop your drivers from jumping the queue and your managers from arguing about it."*
+
+#### 2. Turnaround Time — Making Trips Visible
+
+SACCO owners currently have no reliable way to know how many revenue trips a given vehicle completed in a day. Drivers self-report, conductors occasionally inflate receipts, and the real number is unverifiable.
+
+Once GPS devices are installed, the system can automatically count completed route cycles: terminus departure → terminus arrival = one trip. Daily trip counts per vehicle and per driver are surfaced in the HoplnOS finance module. SACCO owners immediately see which vehicles are doing 6 trips per day and which are doing 3 — and can investigate why.
+
+Faster turnarounds mean more trips. More trips mean more revenue for the SACCO and more data for the Hopln algorithm. Both sides benefit.
+
+#### 3. Geofencing — Route Compliance & NTSA Risk
+
+A frequent source of NTSA (National Transport and Safety Authority) fines is drivers deviating from their licensed route — cutting through residential estates to bypass traffic, serving stops outside their designated alignment, or operating on a different route entirely without authorisation.
+
+HoplnOS monitors each vehicle's GPS trace against the polyline of its assigned GTFS route. A deviation beyond a configurable threshold (e.g., 200 metres for more than 60 seconds) triggers an immediate alert to the dispatcher and logs the event for the SACCO owner. This gives SACCOs a paper trail demonstrating route compliance if challenged by NTSA, and reduces fine exposure.
+
+---
+
+### Engineering Constraints for the Nairobi Context
+
+Two constraints that are often overlooked in transit app development for Nairobi — and that have direct implications for how this backend and the mobile app are built:
+
+#### Low-Data Architecture
+
+Matatu conductors and drivers are acutely sensitive to mobile data costs. An app that burns 50 MB per day in background data will be uninstalled within a week. The in-bus IoT device and the conductor companion app must use the lightest possible data transport.
+
+GPS position updates are sent as **MQTT messages** (sub-1 KB per packet, TCP-based, persistent connection) rather than HTTPS POST requests. At one update per 5 seconds, MQTT costs roughly 1–2 MB per operating day per vehicle. HTTPS with TLS handshake overhead on the same frequency would cost 5–10×.
+
+The passenger app on the user side uses the existing REST API but is designed to minimise unnecessary polling — real-time updates are pushed via WebSocket only when the user has an active trip, not in the background.
+
+#### Offline-First for Passengers
+
+Nairobi's cellular network is excellent in the CBD and along major corridors, but degrades in informal settlements, during heavy rain, and in low-signal pockets across the city. A passenger in Kibera or Mathare should still be able to plan a route.
+
+The passenger app (Hopln mobile) caches the GTFS static dataset locally on device. When offline:
+
+- Route search and stop discovery work against the local cache
+- Journey planning uses the static OTP graph (pre-computed itineraries for common origin-destination pairs can be cached at build time)
+- Real-time overlays (live vehicle positions, live departure boards) are gracefully hidden with a clear "offline mode" indicator rather than showing stale data
+
+When connectivity is restored, the real-time layer reactivates automatically. The static layer is the floor, not the fallback.
 
 ---
 
@@ -533,10 +664,11 @@ When a user boards a matatu and taps in (QR or NFC), the backend associates thei
 
 ### Community Contributions
 
-- Crowd-sourced stop corrections (name, location) submitted through the app and fed into a moderation queue
+- Crowd-sourced stop corrections (name, location) submitted through the mobile app and fed into a moderation queue
 - Missing stop reports with photo evidence
 - Contribution history and trust scoring per user — high-trust contributors can have their corrections auto-approved
 - SACCO administrators can endorse or reject community-submitted changes for their routes
+- This is the mobile-app entry point to the broader HoplnOS community mapping platform described below
 
 ---
 
@@ -546,6 +678,244 @@ When a user boards a matatu and taps in (QR or NFC), the backend associates thei
 - Grafana dashboards for OTP cache hit rates, geocoding pipeline latency, and AI pipeline stage timings
 - Structured logging for every stage of the AI pipeline (Whisper → GPT → geocoding → OTP → TTS)
 - Once IoT devices are live: fleet-wide on-time performance, average route durations, stop dwell times, and peak-hour occupancy heatmaps
+
+---
+
+## HoplnOS — Transit Network Operating System
+
+> HoplnOS is a separate web platform built on top of the same Hopln API backend. It serves two distinct audiences through two distinct portals: **SACCO operators** who need professional tools to manage their fleets, routes, and finances; and **the general public** who want to contribute to and improve the accuracy of Nairobi's public transport data — much like OpenStreetMap does for geographic data.
+>
+> The two portals are unified under one platform because the data they produce flows into the same place: the GTFS dataset and the PostGIS database that power the Hopln mobile app. A SACCO administrator updating a timetable and a community member correcting a stop name are both editing the same underlying network graph, just with different permissions, different interfaces, and different validation workflows.
+
+---
+
+### Portal 1 — SACCO Operations Portal
+
+A private, role-gated web dashboard for SACCO administrators, fleet managers, dispatchers, and finance officers. Access is granted after a SACCO completes the onboarding process and signs the partnership agreement.
+
+#### Roles & Access Levels
+
+| Role | Who | Access |
+|------|-----|--------|
+| `sacco_owner` | SACCO chairperson / director | Full access to all modules, billing, and user management |
+| `fleet_manager` | Operations manager | Fleet, routes, schedules, IoT devices |
+| `dispatcher` | Control room operator | Real-time monitoring, incident management |
+| `finance_officer` | Accounts team | Revenue reports, disbursements, fare rules |
+| `driver` | Bus driver | Personal schedule, route sheet, incident reporting |
+| `conductor` | Ticket conductor | Ticket validation app, boarding/alighting events |
+
+#### Module 1 — Fleet Management
+
+Every vehicle operated by the SACCO is registered and tracked here.
+
+- **Vehicle registry**: plate number, fleet number, capacity (seated + standing), vehicle type (14-seater, 25-seater, 33-seater), manufacturing year, PSV licence number, insurance expiry
+- **IoT device pairing**: each registered vehicle is paired to its in-bus GPS/validator device via a unique hardware ID; the portal shows device status (online, offline, low battery, firmware update available)
+- **Maintenance log**: scheduled service dates, mileage alerts, breakdown history; overdue vehicles automatically flagged and temporarily removed from active route assignments
+- **Driver assignment**: link a driver to a vehicle for a given shift; historical assignment records kept for audit purposes
+- **Fleet map**: live map view of all active vehicles with colour-coded status (on-route, at terminus, offline, in maintenance)
+
+#### Module 2 — Route & Schedule Management
+
+The canonical source of truth for the SACCO's route definitions, replacing ad-hoc spreadsheets and paper timetables.
+
+- **Route editor**: map-based drag-and-drop interface for defining a route's stop sequence; each waypoint is linked to a verified stop in the shared GTFS stop database; the polyline between stops is auto-snapped to the road network via Mapbox Directions
+- **Timetable builder**: define service patterns (weekday, Saturday, Sunday, public holiday), departure frequencies (headway-based or fixed-time), and first/last service times per terminus
+- **Seasonal variations**: create one-off schedule overrides for specific dates (e.g., reduced service on Easter Monday, extended service during Nairobi Marathon)
+- **Fare matrix**: set fares per boarding–alighting stop pair; distance-based or flat-rate per segment; the matrix is used by the ticketing system and surfaced to passengers in the Hopln app
+- **GTFS export**: any saved route/schedule change is immediately compiled into a GTFS feed update and pushed to OpenTripPlanner, making it live in the passenger app within minutes
+- **Change audit log**: every edit is timestamped and attributed to the user who made it; previous versions are retained and restorable
+
+#### Module 3 — Real-Time Network Monitoring
+
+The dispatcher's control room view — a live operational picture of the entire fleet.
+
+- **Live fleet map**: all active vehicles plotted on a map with real-time positions updated every 5 seconds from the IoT GPS devices; each vehicle marker shows route, direction, speed, and occupancy
+- **Schedule adherence**: each vehicle's actual position is compared to its expected position based on the timetable; early, on-time, and late departures are colour-coded; persistent lateness triggers an automated alert to the dispatcher
+- **Headway monitoring**: for high-frequency routes, the system monitors the gap between consecutive vehicles; bunching (two buses too close together) and gapping (interval too large) are flagged in real time with suggested corrective actions
+- **Passenger load**: live occupancy percentage per vehicle from the in-bus passenger counter; the dispatcher can see at a glance which vehicles are overcrowded and which are running near-empty
+- **Incident board**: real-time feed of events from the field — breakdowns reported by drivers, validator errors, stop device failures; each incident has a status (open, acknowledged, resolved) and can be escalated
+
+#### Module 4 — Financial Operations
+
+Transparent revenue reporting and automated disbursement.
+
+- **Revenue dashboard**: daily, weekly, and monthly fare revenue broken down by route, vehicle, and payment method (single ticket vs. subscription pass); exportable as CSV or PDF
+- **Subscription attribution**: when a City Pass holder boards a SACCO's vehicle, Hopln calculates that SACCO's share of the subscription revenue based on actual ridership (passenger-kilometres); this attribution is shown transparently in the finance module
+- **Disbursement schedule**: SACCOs are paid out on a configurable cycle (daily, weekly); the disbursement engine calculates the net amount (gross fares minus Hopln's service fee) and initiates an M-Pesa B2B transfer automatically
+- **Transaction ledger**: itemised record of every ticket validated, every subscription boarding, every disbursement, and every adjustment, with full traceability back to the originating device event
+- **Fare dispute resolution**: passengers can contest a fare charge through the Hopln app; the dispute appears in the SACCO's finance module with the supporting IoT event data (boarding stop, alighting stop, timestamp) for review
+
+#### Module 5 — Driver & Conductor Management
+
+- **Staff registry**: driver and conductor profiles with licence numbers, PSV badge numbers, employment start date, and emergency contacts
+- **Shift scheduling**: assign drivers and conductors to specific vehicles and routes for each operating day; shift confirmations sent via SMS
+- **Performance metrics**: per-driver statistics including on-time departure rate, incident reports filed, and (once live) passenger satisfaction scores
+- **Conductor companion app**: a separate lightweight mobile web app for conductors to validate QR tickets and record cash transactions; works offline and syncs when connectivity is restored
+
+---
+
+### Portal 2 — Community Mapping Platform
+
+A publicly accessible web platform where anyone can view, verify, and contribute improvements to Nairobi's public transport data. Inspired by OpenStreetMap's model of community-maintained geographic data, but focused entirely on transit: stops, routes, and real-world observations that no SACCO would think to document.
+
+The community platform solves a data quality problem that SACCO data alone cannot fix. SACCOs define their official routes and stops, but the reality on the ground diverges constantly: informal stops spring up and disappear, route deviations happen without any official update, stop names are known by five different names depending on who you ask. Community contributors — daily commuters, boda drivers, local residents — are the only people who can capture this ground truth at scale.
+
+#### The Data Model
+
+Every contribution targets one of three entity types:
+
+| Entity | What can be contributed |
+|--------|------------------------|
+| **Stop** | New stop, name correction, location correction, photo, accessibility info, shelter/seating status |
+| **Route** | New route, missing stop on existing route, stop sequence correction, route alignment correction |
+| **Observation** | Real-world event: "this stop no longer exists", "matatus on route 23 skip this stop in the evenings", "the stop at Ngong Road / Valley Road junction is unnamed" |
+
+#### Contribution Workflow
+
+```
+Contributor submits edit
+         │
+         ▼
+Automated validation
+  ├─ Geometry check (stop not in ocean, not 50 km from nearest road)
+  ├─ Duplicate detection (stop already exists within 30 m)
+  └─ Conflict check (edit doesn't contradict a verified SACCO record)
+         │
+    ┌────┴────┐
+    ▼         ▼
+ Auto-      Queued for
+approved   human review
+(high-     (new contributor,
+ trust)     conflicting edits,
+            SACCO-owned data)
+         │
+    ┌────┴────┐
+    ▼         ▼
+  Approved  Rejected
+  → merged  → contributor
+  into GTFS   notified with reason
+```
+
+Approved contributions are merged into the GTFS dataset on a rolling basis and pushed to OpenTripPlanner, making every accepted community edit live in the passenger app within minutes.
+
+#### Trust & Contribution System
+
+Contributors earn trust through a transparent, merit-based system — not gamification, but quality control.
+
+| Level | How earned | Privileges |
+|-------|-----------|------------|
+| **New Contributor** | Account created | Submit stop and route edits; all changes go to moderation queue |
+| **Verified Contributor** | 10 accepted edits, no reversions | Edits to stop names and minor location corrections auto-approved |
+| **Trusted Contributor** | 50 accepted edits, trusted by 3 moderators | Auto-approval for most edit types; can vote on others' pending edits |
+| **Moderator** | Nominated by existing moderators, approved by Hopln | Can approve or reject any pending contribution; can revert accepted edits |
+| **SACCO Verified** | Linked to a verified SACCO account | Auto-approval for edits to that SACCO's own routes and stops |
+
+Each contributor has a public profile showing their edit history, acceptance rate, and specialisation area (which zones of Nairobi they know best).
+
+#### Map-Based Editing Interface
+
+The editing UI is a full-screen interactive map — no forms, no spreadsheets.
+
+- **Stop placement**: click anywhere on the map to propose a new stop; drag an existing stop marker to correct its position; a 15-metre snap-to-nearest-road is applied automatically so stops land on the kerb, not in the middle of a lane
+- **Route tracing**: click stops in sequence to define or correct a route alignment; the system highlights gaps (stops too far from the road network) and overlaps (stop already served by another route in the same direction)
+- **Photo evidence**: contributors can attach photos to any stop or observation; photos are stored and displayed in the Hopln passenger app as well as the community platform
+- **Street-level view**: integration with Mapillary (open street-level imagery) so contributors can verify stop locations without visiting them in person
+- **Conflict highlighting**: when a proposed edit conflicts with existing verified data, both versions are shown side-by-side on the map with a clear explanation of the conflict, so the contributor understands why their edit needs review
+
+#### Public Data API
+
+All verified community data — stops, routes, observations — is accessible via a read-only public API, encouraging third-party transit apps, researchers, and civic technologists to build on top of Hopln's dataset.
+
+```
+GET /public/v1/stops                   All verified stops (GeoJSON)
+GET /public/v1/stops/{id}              Single stop with contribution history
+GET /public/v1/routes                  All verified routes
+GET /public/v1/routes/{id}/stops       Ordered stop sequence for a route
+GET /public/v1/contributions/recent    Latest accepted contributions
+```
+
+Rate-limited per IP, no authentication required. Full GTFS exports available as static file downloads on a daily refresh cycle.
+
+---
+
+### HoplnOS — Backend Architecture Implications
+
+HoplnOS is a new frontend application, but it deepens the same Hopln API backend. No new backend service is introduced; instead, new modules are added to the existing Laravel application.
+
+#### New Data Models
+
+| Model | Purpose |
+|-------|---------|
+| `SaccoUser` | Platform account linked to a `Sacco`; carries role assignment |
+| `FleetVehicle` | Registered bus with plate number, capacity, IoT device pairing |
+| `IoTDevice` | Hardware unit (in-bus or at-stop) with serial number, firmware version, last-seen timestamp |
+| `ServicePattern` | Timetable definition: headway, first/last service, days of operation |
+| `FareMatrix` | Per-SACCO fare rules: boarding stop, alighting stop, fare amount |
+| `ShiftAssignment` | Driver + vehicle + route for a given operating day |
+| `CommunityContributor` | Public user account for the mapping platform; separate from the passenger `User` model |
+| `Contribution` | A single proposed edit (stop, route, observation) with status and diff |
+| `ContributionVote` | Trusted contributor vote on a pending contribution |
+| `ModerationAction` | Audit record of every approve/reject/revert decision |
+
+#### New Permission Scopes
+
+The existing API will be extended with a Laravel permission layer (Spatie `laravel-permission`) with the following guard structure:
+
+```
+Guards:
+  api          — passenger app (Sanctum tokens)
+  sacco        — SACCO portal (Sanctum tokens, sacco_user table)
+  community    — community mapping platform (Sanctum tokens, community_contributor table)
+
+Key permission checks:
+  sacco:manage-fleet          sacco:manage-routes
+  sacco:view-financials       sacco:manage-staff
+  community:submit-edit       community:vote-on-edit
+  community:moderate          hopln:admin
+```
+
+#### New API Namespaces
+
+```
+/api/v1/sacco/*          — SACCO portal endpoints (sacco guard)
+/api/v1/community/*      — community mapping endpoints (community guard + public)
+/public/v1/*             — unauthenticated public data read endpoints
+```
+
+#### Real-Time Features
+
+The SACCO dispatcher view requires a persistent connection for live vehicle position updates. This is implemented via **Laravel Echo** (WebSockets) backed by **Soketi** (self-hosted, compatible with Pusher protocol):
+
+```
+IoT device  →  MQTT ingestion  →  VehiclePositionUpdated event
+                                         │
+                                   Laravel Echo broadcast
+                                         │
+                              SACCO portal WebSocket client
+                              (updates vehicle markers on map)
+```
+
+The community platform does not require WebSockets; edit status updates are delivered via polling or Firebase push notification.
+
+---
+
+### Community Contributions
+
+- Crowd-sourced stop corrections (name, location) submitted through the mobile app and fed into a moderation queue
+- Missing stop reports with photo evidence
+- Contribution history and trust scoring per user — high-trust contributors can have their corrections auto-approved
+- SACCO administrators can endorse or reject community-submitted changes for their routes
+- This is the mobile-app entry point to the broader HoplnOS community mapping platform described above
+
+---
+
+### Analytics & Observability
+
+- Per-session AI conversation metrics: turns per session, tool-call rate, route success rate, fallback-to-Google-Maps rate
+- Grafana dashboards for OTP cache hit rates, geocoding pipeline latency, and AI pipeline stage timings
+- Structured logging for every stage of the AI pipeline (Whisper → GPT → geocoding → OTP → TTS)
+- Once IoT devices are live: fleet-wide on-time performance, average route durations, stop dwell times, and peak-hour occupancy heatmaps
+- HoplnOS analytics layer: community data quality score per zone, SACCO schedule adherence trends, top contributors per month
 
 ---
 
