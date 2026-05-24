@@ -15,14 +15,15 @@ class RouteController extends Controller
     public function calculate(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'from'     => 'required|array',
-            'from.lat' => 'required|numeric',
-            'from.lng' => 'required|numeric',
-            'to'       => 'required|array',
-            'to.lat'   => 'required|numeric',
-            'to.lng'   => 'required|numeric',
-            'date'     => 'nullable|string',
-            'time'     => 'nullable|string',
+            'from'              => 'required|array',
+            'from.lat'          => 'required|numeric',
+            'from.lng'          => 'required|numeric',
+            'to'                => 'required|array',
+            'to.lat'            => 'required|numeric',
+            'to.lng'            => 'required|numeric',
+            'date'              => 'nullable|string',
+            'time'              => 'nullable|string',
+            'max_walk_distance' => 'nullable|integer|min:100|max:5000',
         ]);
 
         // Short-circuit: origin and destination are the same point (4 d.p. ≈ 11 m precision).
@@ -34,28 +35,23 @@ class RouteController extends Controller
             return response()->json(['data' => []]);
         }
 
-        $route = $this->transitService->findJourney(
+        $routes = $this->transitService->findJourney(
             (float) $validated['from']['lat'],
             (float) $validated['from']['lng'],
             (float) $validated['to']['lat'],
             (float) $validated['to']['lng'],
             $validated['date'] ?? null,
             $validated['time'] ?? null,
+            maxWalkDistance: (int) ($validated['max_walk_distance'] ?? 1500),
         );
 
-        if (!$route) {
+        if (empty($routes)) {
             Log::info('No route found.');
             return response()->json(['data' => []]);
         }
 
-        // Log a lightweight summary rather than the full payload.
-        Log::info("Calculated Route: " . json_encode($route));
-        // Log::info('Route calculated', [
-        //     'type'     => $route['type'],
-        //     'summary'  => $route['summary'],
-        //     'duration' => $route['total_duration'],
-        // ]);
+        Log::info('Routes calculated', ['count' => count($routes), 'summaries' => array_column($routes, 'summary')]);
 
-        return response()->json(['data' => [$route]]);
+        return response()->json(['data' => $routes]);
     }
 }

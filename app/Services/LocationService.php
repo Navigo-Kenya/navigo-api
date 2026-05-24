@@ -120,7 +120,7 @@ class LocationService
                 "GREATEST(
                     similarity((name || ' ' || COALESCE(aliases, '')), ?),
                     CASE WHEN name ILIKE ? THEN 0.9 ELSE 0.0 END
-                ) > 0.15",
+                ) > 0.10",
                 [$query, '%' . $query . '%']
             )
             ->orderByRaw("match_score DESC")

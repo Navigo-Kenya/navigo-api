@@ -1,24 +1,73 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AiTransitController;
+use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\CommunityController;
+use App\Http\Controllers\Api\V1\ContributionController;
 use App\Http\Controllers\Api\V1\LocationController;
+use App\Http\Controllers\Api\V1\OAuthController;
+use App\Http\Controllers\Api\V1\PhoneController;
 use App\Http\Controllers\Api\V1\RouteController;
-use Illuminate\Http\Request;
+use App\Http\Controllers\Api\V1\SavedJourneysController;
+use App\Http\Controllers\Api\V1\SavedPlacesController;
+use App\Http\Controllers\Api\V1\SettingsController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/user', function (Request $request) {
-    return $request->user();
-})->middleware('auth:sanctum');
-
 Route::prefix('v1')->group(function () {
-    // Geolocation & Stops
+    // ── Auth (public) ──────────────────────────────────────────────
+    Route::prefix('auth')->group(function () {
+        Route::post('register',        [AuthController::class, 'register']);
+        Route::post('login',           [AuthController::class, 'login'])->middleware('throttle:auth');
+        Route::post('google',          [OAuthController::class, 'google']);
+        Route::post('apple',           [OAuthController::class, 'apple']);
+        Route::post('phone/send',      [PhoneController::class, 'send'])->middleware('throttle:otp');
+        Route::post('phone/verify',    [PhoneController::class, 'verify']);
+        Route::post('password/forgot', [AuthController::class, 'forgotPassword']);
+        Route::post('password/reset',  [AuthController::class, 'resetPassword']);
+
+        Route::middleware('auth:sanctum')->group(function () {
+            Route::get('me',           [AuthController::class, 'me']);
+            Route::patch('profile',    [AuthController::class, 'updateProfile']);
+            Route::get('settings',     [SettingsController::class, 'show']);
+            Route::patch('settings',   [SettingsController::class, 'update']);
+            Route::post('avatar',      [AuthController::class, 'updateAvatar']);
+            Route::post('logout',      [AuthController::class, 'logout']);
+        });
+    });
+
+    // ── Geolocation & Stops ────────────────────────────────────────
     Route::get('/stops/all',    [LocationController::class, 'all']);
     Route::get('/stops/nearby', [LocationController::class, 'nearby']);
     Route::get('/stops/search', [LocationController::class, 'search']);
     Route::get('/stops/{id}',   [LocationController::class, 'show']);
 
-    // The Core Trip Engine Endpoint
+    // ── Journey ────────────────────────────────────────────────────
     Route::post('/journey/calculate', [RouteController::class, 'calculate']);
+    Route::post('/journey/ai-plan',   [AiTransitController::class, 'planRouteWithAi']);
 
-    Route::post('/journey/ai-plan', [AiTransitController::class, 'planRouteWithAi']);
+    // ── Community (public) ─────────────────────────────────────────
+    Route::get('/contributions/nearby',    [ContributionController::class, 'nearby']);
+    Route::get('/community/leaderboard',   [CommunityController::class, 'leaderboard']);
+
+    // ── User data ──────────────────────────────────────────────────
+    Route::prefix('user')->middleware('auth:sanctum')->group(function () {
+        Route::get('saved-places',           [SavedPlacesController::class, 'index']);
+        Route::post('saved-places',          [SavedPlacesController::class, 'store']);
+        Route::delete('saved-places/{id}',   [SavedPlacesController::class, 'destroy']);
+
+        Route::get('saved-journeys',         [SavedJourneysController::class, 'index']);
+        Route::post('saved-journeys',        [SavedJourneysController::class, 'store']);
+        Route::delete('saved-journeys/{id}', [SavedJourneysController::class, 'destroy']);
+
+        Route::get('contributions',          [ContributionController::class, 'index']);
+        Route::post('contributions',         [ContributionController::class, 'store']);
+        Route::delete('contributions/{id}',  [ContributionController::class, 'destroy']);
+
+        Route::get('community/stats',        [CommunityController::class, 'stats']);
+        Route::get('badges',                 [CommunityController::class, 'badges']);
+    });
+
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::post('/contributions/{id}/vote', [ContributionController::class, 'vote']);
+    });
 });

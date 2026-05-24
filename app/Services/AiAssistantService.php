@@ -331,7 +331,7 @@ PROMPT;
             return null;
         }
 
-        return $this->transitEngine->findJourney(
+        $routes = $this->transitEngine->findJourney(
             (float) $fromCoords['lat'],
             (float) $fromCoords['lng'],
             (float) $toCoords['lat'],
@@ -340,6 +340,8 @@ PROMPT;
             null,
             (float) ($args['walkReluctance'] ?? 13.5),
         );
+
+        return $routes[0] ?? null;
     }
 
     private function randomHoldingPhrase(string $from, string $to): string

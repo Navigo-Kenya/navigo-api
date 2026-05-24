@@ -59,11 +59,8 @@ class TransitEngineService
     // JOURNEY PLANNING
     // ─────────────────────────────────────────────────────────────────────
 
-    public function findJourney( float $fromLat, float $fromLng, float $toLat, float $toLng, ?string $date = null, ?string $time = null, float $walkReluctance = 13.5): ?array
+    public function findJourney( float $fromLat, float $fromLng, float $toLat, float $toLng, ?string $date = null, ?string $time = null, float $walkReluctance = 13.5, int $maxWalkDistance = 1500): array
     {
-        // $date = $date ?? now()->format('Y-m-d');
-
-        // If the AI didn't provide a date/time, use 'now'
         $resolvedDate = $date ?? now()->timezone('Africa/Nairobi')->format('Y-m-d');
         $resolvedTime = $time ?? now()->timezone('Africa/Nairobi')->format('h:ia');
 
@@ -71,33 +68,35 @@ class TransitEngineService
         if (!$date && !$time) {
             $hour = (int) now()->timezone('Africa/Nairobi')->format('H');
             if ($hour >= 20 || $hour <= 4) {
-                $resolvedTime = '02:00pm'; // Fake it so OTP returns routes late at night
+                $resolvedTime = '02:00pm';
             }
         }
 
-        $cacheKey = 'otp:journey:' . md5("{$fromLat},{$fromLng},{$toLat},{$toLng},{$resolvedDate},{$resolvedTime},{$walkReluctance}");
+        // v2: cache now stores an array of itineraries
+        $cacheKey = 'otp:journey:v2:' . md5("{$fromLat},{$fromLng},{$toLat},{$toLng},{$resolvedDate},{$resolvedTime},{$walkReluctance},{$maxWalkDistance}");
 
         return Cache::remember(
             $cacheKey,
             $this->otpCacheTtl,
-            fn () => $this->fetchFromOtp($fromLat, $fromLng, $toLat, $toLng, $resolvedDate, $resolvedTime, $walkReluctance)
+            fn () => $this->fetchFromOtp($fromLat, $fromLng, $toLat, $toLng, $resolvedDate, $resolvedTime, $walkReluctance, $maxWalkDistance)
         );
     }
 
-    private function fetchFromOtp( float $fromLat, float $fromLng, float $toLat, float $toLng, string $date, string $time, float $walkReluctance): ?array
+    private function fetchFromOtp( float $fromLat, float $fromLng, float $toLat, float $toLng, string $date, string $time, float $walkReluctance, int $maxWalkDistance = 1500): ?array
     {
         try {
             $response = Http::timeout(45)->get("{$this->otpBaseUrl}/plan", [
-                'fromPlace'        => "{$fromLat},{$fromLng}",
-                'toPlace'          => "{$toLat},{$toLng}",
-                'mode'             => 'TRANSIT,WALK',
-                'maxWalkDistance'  => 1500,
-                'walkReluctance'   => $walkReluctance,
-                'transferPenalty'  => 120,
-                'arriveBy'         => 'false',
-                'numItineraries'   => 2,
-                'date'             => $date,
-                'time'             => $time,
+                'fromPlace'             => "{$fromLat},{$fromLng}",
+                'toPlace'               => "{$toLat},{$toLng}",
+                'mode'                  => 'TRANSIT,WALK',
+                'maxWalkDistance'       => $maxWalkDistance,
+                'walkReluctance'        => $walkReluctance,
+                'transferPenalty'       => 120,
+                'arriveBy'              => 'false',
+                'numItineraries'        => 2,
+                'date'                  => $date,
+                'time'                  => $time,
+                'showIntermediateStops' => 'true',
             ]);
 
             if (!$response->successful()) {
@@ -109,14 +108,17 @@ class TransitEngineService
             $itineraries = $body['plan']['itineraries'] ?? [];
 
             if (empty($itineraries)) {
-                return null;
+                return [];
             }
 
-            return $this->parseItinerary($itineraries[0]);
+            return array_values(array_map(
+                fn ($it) => $this->parseItinerary($it),
+                $itineraries,
+            ));
 
         } catch (Exception $e) {
             Log::error('OTP Engine Error', ['message' => $e->getMessage()]);
-            return null;
+            return [];
         }
     }
 
@@ -189,6 +191,26 @@ class TransitEngineService
                 $cacheKey    = $this->transitSnapKey($leg);
                 $coordinates = $this->snapToRoadsService->snap($rawCoords, $cacheKey);
                 $walkSteps   = [];
+
+                // Build ordered stop list: boarding + intermediate + alighting
+                $legStops = [];
+                $legStops[] = [
+                    'name' => $leg['from']['name'] ?? 'Unknown',
+                    'lat'  => (float) ($leg['from']['lat'] ?? 0),
+                    'lng'  => (float) ($leg['from']['lon'] ?? 0),
+                ];
+                foreach ($leg['intermediateStops'] ?? [] as $ist) {
+                    $legStops[] = [
+                        'name' => $ist['name'] ?? 'Unknown',
+                        'lat'  => (float) ($ist['lat'] ?? 0),
+                        'lng'  => (float) ($ist['lon'] ?? 0),
+                    ];
+                }
+                $legStops[] = [
+                    'name' => $leg['to']['name'] ?? 'Unknown',
+                    'lat'  => (float) ($leg['to']['lat'] ?? 0),
+                    'lng'  => (float) ($leg['to']['lon'] ?? 0),
+                ];
             } else {
                 // ── Walking: use Google Directions API (road-snapped) ──────────
                 // DB-cached permanently; falls back to OTP when walk < 100 m.
@@ -228,6 +250,7 @@ class TransitEngineService
                 'route_name'  => $routeName,
                 'coordinates' => $coordinates,
                 'walk_steps'  => $walkSteps,
+                'stops'       => $legStops ?? [],
                 'from'        => [
                     'name' => $fromName === 'Origin'      ? 'Current Location' : $fromName,
                     'lat'  => $leg['from']['lat'],

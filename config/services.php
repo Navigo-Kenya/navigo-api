@@ -35,4 +35,19 @@ return [
         ],
     ],
 
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+    ],
+
+    'apple' => [
+        'client_id' => env('APPLE_CLIENT_ID'),
+    ],
+
+    'africastalking' => [
+        'api_key'   => env('AT_API_KEY'),
+        'username'  => env('AT_USERNAME', 'sandbox'),
+        'sender_id' => env('AT_SENDER_ID', 'HOPLN'),
+        'sandbox'   => env('AT_SANDBOX', true),
+    ],
+
 ];

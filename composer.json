@@ -7,7 +7,10 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "firebase/php-jwt": "^6.10",
+        "guzzlehttp/guzzle": "^7.9",
         "laravel/framework": "^13.0",
+        "laravel/sanctum": "^4.0|^5.0",
         "laravel/tinker": "^3.0",
         "openspout/openspout": "^5.3"
     },
@@ -79,7 +82,9 @@
         "allow-plugins": {
             "pestphp/pest-plugin": true,
             "php-http/discovery": true
-        }
+        },
+        "disable-tls": true,
+        "secure-http": false
     },
     "minimum-stability": "stable",
     "prefer-stable": true
