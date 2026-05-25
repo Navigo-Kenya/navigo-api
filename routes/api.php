@@ -39,7 +39,9 @@ Route::prefix('v1')->group(function () {
     Route::get('/stops/all',    [LocationController::class, 'all']);
     Route::get('/stops/nearby', [LocationController::class, 'nearby']);
     Route::get('/stops/search', [LocationController::class, 'search']);
-    Route::get('/stops/{id}',   [LocationController::class, 'show']);
+    Route::get('/stops/{id}',         [LocationController::class, 'show']);
+    Route::get('/stops/{id}/reviews', [LocationController::class, 'stopReviews']);
+    Route::get('/stops/{id}/photos',  [LocationController::class, 'stopPhotos']);
 
     // ── Journey ────────────────────────────────────────────────────
     Route::post('/journey/calculate', [RouteController::class, 'calculate']);
@@ -62,6 +64,7 @@ Route::prefix('v1')->group(function () {
         Route::get('contributions',          [ContributionController::class, 'index']);
         Route::post('contributions',         [ContributionController::class, 'store']);
         Route::delete('contributions/{id}',  [ContributionController::class, 'destroy']);
+        Route::patch('contributions/{id}',   [ContributionController::class, 'update']);
 
         Route::get('community/stats',        [CommunityController::class, 'stats']);
         Route::get('badges',                 [CommunityController::class, 'badges']);

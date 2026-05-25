@@ -11,6 +11,7 @@ Laravel 13 · PHP 8.3 · PostgreSQL / PostGIS · OpenAI · OpenTripPlanner
 [![PHP](https://img.shields.io/badge/PHP-8.3-777BB4?style=flat-square&logo=php&logoColor=white)](https://php.net)
 [![Laravel](https://img.shields.io/badge/Laravel-13-FF2D20?style=flat-square&logo=laravel&logoColor=white)](https://laravel.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
+[![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis&logoColor=white)](https://redis.io)
 [![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o--mini-412991?style=flat-square&logo=openai&logoColor=white)](https://openai.com)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
@@ -69,7 +70,7 @@ Mobile App  (Expo / React Native)
 │               (Docker :8080)                                │
 │                                                             │
 │  PostgreSQL 16 + PostGIS 3.4   ◄── GTFS-aligned schema      │
-│  Laravel Cache (Redis / file)  ◄── OTP results · sessions   │
+│  Redis 7                       ◄── cache · queues · sessions │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -367,10 +368,24 @@ Proxies OpenTripPlanner and enriches the raw OTP response:
 - Calls `GET /otp/routers/default/plan` with `mode=TRANSIT,WALK`
 - Applies `walkReluctance=13.5` by default (increases to 20–25 when the user mentions heavy bags or rain)
 - `maxWalkDistance=1500 m`, `numItineraries=2`
-- Results cached for 5 minutes keyed on origin + destination + departure time
+- Results cached in Redis for 5 minutes keyed on origin + destination + departure time
 - Post-processes raw legs into the mobile-friendly `segments` array, including stop sequences, polylines, and transfer points
 
 **Stop proximity**: `ST_DWithin` on the PostGIS `geography` type for accurate metre-based distance; KNN fallback (`<->`) when no stops are within the radius.
+
+---
+
+### Redis
+
+Redis 7 (Alpine) runs as a Docker service and backs three Laravel subsystems:
+
+| Driver | Key pattern | TTL |
+|--------|-------------|-----|
+| **Cache** (`CACHE_STORE=redis`) | `hopln:otp:*`, `hopln:geocode:*`, `hopln:kwame:*` | 5 min – 24 h |
+| **Queue** (`QUEUE_CONNECTION=redis`) | `queues:default` | Until processed |
+| **Sessions** (`SESSION_DRIVER=redis`) | `laravel_session:*` | 120 min |
+
+The queue worker (`php artisan queue:listen`) started by `composer dev` consumes jobs from the Redis queue. OTP route results and Kwame session history are the primary cache consumers; Google Maps geocoding results are cached for 24 hours.
 
 ---
 
@@ -406,7 +421,7 @@ The `Stop.location` column is a `geometry(Point, 4326)` column. All proximity qu
 ### Prerequisites
 
 - PHP 8.3 + Composer
-- Docker (for PostgreSQL + PostGIS and OpenTripPlanner)
+- Docker (for PostgreSQL + PostGIS, Redis, and OpenTripPlanner)
 - Node.js (for Vite asset compilation)
 
 ### Installation
@@ -421,13 +436,13 @@ composer install
 cp .env.example .env
 php artisan key:generate
 
-# Start the database (PostgreSQL 16 + PostGIS 3.4)
+# Start infrastructure (PostgreSQL 16 + PostGIS 3.4, Redis 7, pgAdmin)
 docker compose up -d
 
 # Run migrations
 php artisan migrate
 
-# Start all services (HTTP server + queue + logs + Vite)
+# Start all services (HTTP server + queue worker + logs + Vite)
 composer dev
 ```
 
@@ -460,18 +475,25 @@ DB_DATABASE=hopln
 DB_USERNAME=hopln
 DB_PASSWORD=
 
+# Redis — cache, queue, sessions (Docker service on :6379)
+REDIS_CLIENT=predis
+REDIS_HOST=127.0.0.1
+REDIS_PASSWORD=null
+REDIS_PORT=6379
+CACHE_STORE=redis
+CACHE_PREFIX=hopln
+QUEUE_CONNECTION=redis
+SESSION_DRIVER=redis
+
 # OpenAI — AI assistant, speech-to-text, text-to-speech
 OPENAI_API_KEY=
 
 # Google Maps — geocoding fallback
 GOOGLE_MAPS_API_KEY=
 
-# Cache / Sessions (default: file — switch to redis in production)
-CACHE_STORE=file
-SESSION_DRIVER=file
-
 # OpenTripPlanner
 OTP_BASE_URL=http://localhost:8080
+OTP_CACHE_TTL=300
 ```
 
 ---
@@ -584,7 +606,7 @@ The physical layer that turns a matatu fleet into a connected network. Two class
 The backend receives a continuous stream from these devices via a lightweight MQTT broker (or a dedicated ingestion endpoint). A new `VehiclePosition` model and `StopEvent` model persist this data; GTFS-RT feeds are generated from it for consumption by OpenTripPlanner, closing the loop between live data and route planning.
 
 ```
-In-bus device  ──► MQTT broker  ──► VehiclePositionIngestionJob (queued)
+In-bus device  ──► MQTT broker  ──► VehiclePositionIngestionJob (Redis queue)
                                           │
                                ┌──────────┼──────────────┐
                                ▼          ▼              ▼

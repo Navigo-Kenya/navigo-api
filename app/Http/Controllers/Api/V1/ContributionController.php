@@ -33,6 +33,23 @@ class ContributionController extends Controller
             'data'        => 'nullable|array',
         ]);
 
+        // One review per stop per user — upsert
+        if ($validated['type'] === 'stop_review' && !empty($validated['stop_id'])) {
+            $existing = Contribution::where('user_id', $request->user()->id)
+                ->where('type', 'stop_review')
+                ->where('stop_id', $validated['stop_id'])
+                ->first();
+            if ($existing) {
+                $existing->update(['data' => $validated['data'] ?? $existing->data]);
+                return response()->json([
+                    'data'           => $existing->load('stop'),
+                    'points_awarded' => 0,
+                    'new_badges'     => [],
+                    'new_level'      => null,
+                ], 200);
+            }
+        }
+
         $result = $this->service->create($request->user(), $validated);
 
         return response()->json([
@@ -77,6 +94,19 @@ class ContributionController extends Controller
             ->get();
 
         return response()->json(['data' => $contributions]);
+    }
+
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $contribution = Contribution::where('id', $id)
+            ->where('user_id', $request->user()->id)
+            ->firstOrFail();
+
+        $validated = $request->validate(['data' => 'required|array']);
+
+        $contribution->update(['data' => $validated['data']]);
+
+        return response()->json(['data' => $contribution->load('stop')]);
     }
 
     public function vote(Request $request, int $id): JsonResponse

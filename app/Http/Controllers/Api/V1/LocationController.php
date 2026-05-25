@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\StopResource;
+use App\Models\Contribution;
 use App\Services\LocationService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -47,8 +49,43 @@ class LocationController extends Controller
 
         $stops = $this->locationService->searchStops($validated['q']);
 
-        Log::info("Searched for stops with query: '{$validated['q']}' - Found " . count($stops) . " results.");
+        Log::info("Searched for stops with query: '{$validated['q']}' - Found " . \count($stops) . " results.");
 
         return StopResource::collection($stops);
+    }
+
+    public function stopReviews(string $id): JsonResponse
+    {
+        $reviews = Contribution::where('stop_id', $id)
+            ->where('type', 'stop_review')
+            ->whereIn('status', ['auto_approved', 'approved'])
+            ->with('user:id,name,avatar')
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn ($c) => [
+                'id'         => $c->id,
+                'user_id'    => $c->user_id,
+                'user'       => $c->user ? ['id' => $c->user->id, 'name' => $c->user->name, 'avatar' => $c->user->avatar] : null,
+                'data'       => $c->data,
+                'created_at' => $c->created_at,
+            ]);
+
+        return response()->json(['data' => $reviews]);
+    }
+
+    public function stopPhotos(string $id): JsonResponse
+    {
+        $photos = Contribution::where('stop_id', $id)
+            ->where('type', 'stop_photo')
+            ->where('status', 'approved')
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn ($c) => [
+                'id'         => $c->id,
+                'data'       => $c->data,
+                'created_at' => $c->created_at,
+            ]);
+
+        return response()->json(['data' => $photos]);
     }
 }
