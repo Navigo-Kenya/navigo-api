@@ -4,7 +4,9 @@ use App\Http\Controllers\Api\V1\AiTransitController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CommunityController;
 use App\Http\Controllers\Api\V1\ContributionController;
+use App\Http\Controllers\Api\V1\DeviceTokenController;
 use App\Http\Controllers\Api\V1\LocationController;
+use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OAuthController;
 use App\Http\Controllers\Api\V1\PhoneController;
 use App\Http\Controllers\Api\V1\RouteController;
@@ -32,6 +34,16 @@ Route::prefix('v1')->group(function () {
             Route::patch('settings',   [SettingsController::class, 'update']);
             Route::post('avatar',      [AuthController::class, 'updateAvatar']);
             Route::post('logout',      [AuthController::class, 'logout']);
+
+            // Device tokens (push notification registration)
+            Route::post('device-tokens',   [DeviceTokenController::class, 'store']);
+            Route::delete('device-tokens', [DeviceTokenController::class, 'destroy']);
+
+            // Notification inbox
+            Route::get('notifications',                      [NotificationController::class, 'index']);
+            Route::patch('notifications/{notification}/read', [NotificationController::class, 'markRead']);
+            Route::post('notifications/mark-all-read',       [NotificationController::class, 'markAllRead']);
+            Route::get('notifications/unread-count',         [NotificationController::class, 'unreadCount']);
         });
     });
 

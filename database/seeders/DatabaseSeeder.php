@@ -16,6 +16,8 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
+            AgencySeeder::class,
+            ServiceCalendarSeeder::class,
             // GtfsSeeder::class,
             GtfsExcelSeeder::class,
         ]);

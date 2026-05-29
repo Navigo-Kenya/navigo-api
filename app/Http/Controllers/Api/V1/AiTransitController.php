@@ -3,8 +3,9 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Jobs\LogJourneyJob;
 use App\Services\AiAssistantService;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class AiTransitController extends Controller
@@ -34,6 +35,23 @@ class AiTransitController extends Controller
             'has_route' => !empty($result['route']),
             'has_hold'  => !empty($result['holding_phrase']),
         ]);
+
+        if (!empty($result['route']) && \is_array($result['route'])) {
+            $first   = $result['route'][0];
+            $transit = array_values(array_filter($first['segments'] ?? [], fn ($s) => $s['mode'] !== 'WALK'));
+
+            $origin      = $transit[0]['from']['name'] ?? null;
+            $destination = \count($transit) > 0 ? array_reverse($transit)[0]['to']['name'] : null;
+            $summary     = $first['summary'] ?? '';
+
+            LogJourneyJob::dispatch([
+                'origin_name'      => $origin,
+                'destination_name' => $destination,
+                'primary_route'    => str_starts_with($summary, 'Via ') ? substr($summary, 4) : null,
+                'type'             => 'ai',
+                'user_id'          => auth()->id(),
+            ])->onQueue('default');
+        }
 
         return response()->json($result);
     }

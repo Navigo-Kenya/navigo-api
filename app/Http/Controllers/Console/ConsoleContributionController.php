@@ -1,0 +1,141 @@
+<?php
+
+namespace App\Http\Controllers\Console;
+
+use App\Http\Controllers\Controller;
+use App\Jobs\OtpSyncJob;
+use App\Models\Contribution;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+class ConsoleContributionController extends Controller
+{
+    public function index(Request $request): JsonResponse
+    {
+        $q = Contribution::with('user:id,name,avatar,points')
+            ->withCount('votes');
+
+        if ($status = $request->input('status')) {
+            $q->where('status', $status);
+        }
+
+        if ($type = $request->input('type')) {
+            $q->where('type', $type);
+        }
+
+        if ($from = $request->input('from')) {
+            $q->whereDate('created_at', '>=', $from);
+        }
+
+        if ($to = $request->input('to')) {
+            $q->whereDate('created_at', '<=', $to);
+        }
+
+        if ($search = $request->input('search')) {
+            $q->where('description', 'ilike', "%{$search}%");
+        }
+
+        $contributions = $q->latest()->paginate((int) $request->input('per_page', 20));
+
+        return response()->json($contributions);
+    }
+
+    public function show(int $id): JsonResponse
+    {
+        $contribution = Contribution::with([
+            'user:id,name,email,avatar,points',
+            'votes',
+        ])->findOrFail($id);
+
+        return response()->json($contribution);
+    }
+
+    public function approve(int $id): JsonResponse
+    {
+        $contribution = Contribution::where('status', 'pending')->findOrFail($id);
+
+        $contribution->update([
+            'status'      => 'approved',
+            'reviewed_at' => now(),
+            'reviewed_by' => auth()->id(),
+        ]);
+
+        // Award points to contributor
+        if ($contribution->user_id) {
+            $contribution->user()->increment('points', 10);
+        }
+
+        OtpSyncJob::dispatch()->onQueue('otp');
+
+        return response()->json(['message' => 'Contribution approved. OTP sync queued.']);
+    }
+
+    public function decline(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['reason' => 'required|string|max:500']);
+
+        $contribution = Contribution::where('status', 'pending')->findOrFail($id);
+
+        $contribution->update([
+            'status'         => 'declined',
+            'decline_reason' => $data['reason'],
+            'reviewed_at'    => now(),
+            'reviewed_by'    => auth()->id(),
+        ]);
+
+        return response()->json(['message' => 'Contribution declined.']);
+    }
+
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $contribution = Contribution::findOrFail($id);
+
+        $data = $request->validate([
+            'description'  => 'sometimes|string',
+            'lat'          => 'sometimes|numeric',
+            'lng'          => 'sometimes|numeric',
+            'stop_name'    => 'sometimes|string|max:255',
+        ]);
+
+        $contribution->update($data);
+
+        return response()->json($contribution);
+    }
+
+    public function bulkApprove(Request $request): JsonResponse
+    {
+        $data = $request->validate(['ids' => 'required|array', 'ids.*' => 'integer']);
+
+        $count = Contribution::whereIn('id', $data['ids'])->where('status', 'pending')
+            ->update([
+                'status'      => 'approved',
+                'reviewed_at' => now(),
+                'reviewed_by' => auth()->id(),
+            ]);
+
+        if ($count > 0) {
+            OtpSyncJob::dispatch()->onQueue('otp');
+        }
+
+        return response()->json(['approved' => $count]);
+    }
+
+    public function bulkDecline(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'ids'    => 'required|array',
+            'ids.*'  => 'integer',
+            'reason' => 'required|string|max:500',
+        ]);
+
+        $count = Contribution::whereIn('id', $data['ids'])->where('status', 'pending')
+            ->update([
+                'status'         => 'declined',
+                'decline_reason' => $data['reason'],
+                'reviewed_at'    => now(),
+                'reviewed_by'    => auth()->id(),
+            ]);
+
+        return response()->json(['declined' => $count]);
+    }
+}

@@ -2,9 +2,12 @@
 
 namespace App\Models;
 
+use App\Observers\ShapeObserver;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
+#[ObservedBy([ShapeObserver::class])]
 class Shape extends Model
 {
     protected $primaryKey = 'shape_id';

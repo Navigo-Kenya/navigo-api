@@ -29,6 +29,9 @@ class User extends Authenticatable
         'oauth_provider',
         'settings',
         'points',
+        'role',
+        'banned_at',
+        'ban_reason',
     ];
 
     protected $hidden = ['password', 'remember_token'];
@@ -38,9 +41,30 @@ class User extends Authenticatable
         return [
             'email_verified_at'  => 'datetime',
             'phone_verified_at'  => 'datetime',
+            'banned_at'          => 'datetime',
             'password'           => 'hashed',
             'settings'           => 'array',
         ];
+    }
+
+    public function isBanned(): bool
+    {
+        return $this->banned_at !== null;
+    }
+
+    public function isAdmin(): bool
+    {
+        return in_array($this->role, ['admin', 'superadmin']);
+    }
+
+    public function isSuperAdmin(): bool
+    {
+        return $this->role === 'superadmin';
+    }
+
+    public function hasConsoleAccess(): bool
+    {
+        return in_array($this->role, ['moderator', 'admin', 'superadmin']);
     }
 
     public function isPhoneVerified(): bool
@@ -63,6 +87,16 @@ class User extends Authenticatable
         return $this->hasMany(Contribution::class);
     }
 
+    public function getAvatarAttribute($value): ?string
+    {
+        if (!$value) return null;
+        // Rebuild with current APP_URL so stored http://localhost URLs work across envs
+        if (preg_match('#/storage/(.+)$#', $value, $matches)) {
+            return url('/storage/' . $matches[1]);
+        }
+        return $value;
+    }
+
     public function userBadges(): HasMany
     {
         return $this->hasMany(UserBadge::class);
@@ -71,6 +105,16 @@ class User extends Authenticatable
     public function badges(): BelongsToMany
     {
         return $this->belongsToMany(Badge::class, 'user_badges')->withPivot('earned_at');
+    }
+
+    public function deviceTokens(): HasMany
+    {
+        return $this->hasMany(DeviceToken::class);
+    }
+
+    public function notifications(): HasMany
+    {
+        return $this->hasMany(Notification::class);
     }
 
     public function level(): int

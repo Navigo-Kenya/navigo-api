@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\LogJourneyJob;
 use App\Services\TransitEngineService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -50,8 +51,32 @@ class RouteController extends Controller
             return response()->json(['data' => []]);
         }
 
-        Log::info('Routes calculated', ['count' => count($routes), 'summaries' => array_column($routes, 'summary')]);
+        Log::info('Routes calculated', ['count' => \count($routes), 'summaries' => array_column($routes, 'summary')]);
+
+        LogJourneyJob::dispatch([
+            ...$this->extractJourneyMeta($routes[0]),
+            'type'    => 'standard',
+            'user_id' => auth()->id(),
+        ])->onQueue('default');
 
         return response()->json(['data' => $routes]);
+    }
+
+    private function extractJourneyMeta(array $itinerary): array
+    {
+        $segments = $itinerary['segments'] ?? [];
+        $transit  = array_values(array_filter($segments, fn ($s) => $s['mode'] !== 'WALK'));
+
+        $origin      = $transit[0]['from']['name'] ?? null;
+        $destination = \count($transit) > 0 ? array_reverse($transit)[0]['to']['name'] : null;
+
+        $summary = $itinerary['summary'] ?? '';
+        $route   = str_starts_with($summary, 'Via ') ? substr($summary, 4) : null;
+
+        return [
+            'origin_name'      => $origin,
+            'destination_name' => $destination,
+            'primary_route'    => $route,
+        ];
     }
 }
