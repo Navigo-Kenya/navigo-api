@@ -7,6 +7,7 @@ use App\Models\ServiceCalendar;
 use App\Models\ServiceException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ConsoleServiceCalendarController extends Controller
 {
@@ -104,5 +105,46 @@ class ConsoleServiceCalendarController extends Controller
         $exception->delete();
 
         return response()->json(['message' => 'Exception removed.']);
+    }
+
+    public function bulkExceptions(Request $request, string $id): JsonResponse
+    {
+        ServiceCalendar::findOrFail($id);
+
+        $data = $request->validate([
+            'add'                   => 'sometimes|array',
+            'add.*.date'            => 'required|date_format:Y-m-d',
+            'add.*.exception_type'  => 'required|integer|in:1,2',
+            'add.*.note'            => 'nullable|string|max:200',
+            'remove'                => 'sometimes|array',
+            'remove.*'              => 'integer',
+        ]);
+
+        $addList    = $data['add']    ?? [];
+        $removeList = $data['remove'] ?? [];
+
+        $added   = 0;
+        $removed = 0;
+
+        DB::transaction(function () use ($id, $addList, $removeList, &$added, &$removed) {
+            if (!empty($removeList)) {
+                $removed = ServiceException::whereIn('id', $removeList)
+                    ->where('service_id', $id)
+                    ->delete();
+            }
+
+            foreach ($addList as $item) {
+                ServiceException::updateOrCreate(
+                    ['service_id' => $id, 'date' => $item['date']],
+                    [
+                        'exception_type' => $item['exception_type'],
+                        'note'           => $item['note'] ?? null,
+                    ]
+                );
+                $added++;
+            }
+        });
+
+        return response()->json(['added' => $added, 'removed' => $removed]);
     }
 }

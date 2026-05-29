@@ -56,7 +56,7 @@ class RouteController extends Controller
         LogJourneyJob::dispatch([
             ...$this->extractJourneyMeta($routes[0]),
             'type'    => 'standard',
-            'user_id' => auth()->id(),
+            'user_id' => auth('sanctum')->user()?->getAuthIdentifier(),
         ])->onQueue('default');
 
         return response()->json(['data' => $routes]);

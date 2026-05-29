@@ -88,6 +88,7 @@ class ConsoleTripController extends Controller
             'shape_id'          => 'nullable|string|exists:shapes,shape_id',
             'scheduling_type'   => 'nullable|string|in:scheduled,frequency',
             'route_pattern_id'  => 'nullable|string|exists:route_patterns,id',
+            'block_id'          => 'sometimes|nullable|string|max:50',
         ]);
 
         $trip->update($data);

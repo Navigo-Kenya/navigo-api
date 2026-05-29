@@ -11,6 +11,7 @@ use App\Http\Controllers\Console\ConsoleNetworkController;
 use App\Http\Controllers\Console\ConsoleRouteController;
 use App\Http\Controllers\Console\ConsoleRoutePatternController;
 use App\Http\Controllers\Console\ConsoleScenarioController;
+use App\Http\Controllers\Console\ConsoleSchedulingController;
 use App\Http\Controllers\Console\ConsoleServiceCalendarController;
 use App\Http\Controllers\Console\ConsoleStopController;
 use App\Http\Controllers\Console\ConsoleTripController;
@@ -104,6 +105,7 @@ Route::prefix('v1/console')
         Route::delete('service-calendars/{id}',                      [ConsoleServiceCalendarController::class, 'destroy'])->middleware('role:admin,superadmin');
         Route::post('service-calendars/{id}/exceptions',             [ConsoleServiceCalendarController::class, 'addException'])->middleware('role:admin,superadmin');
         Route::delete('service-calendars/{id}/exceptions/{eid}',     [ConsoleServiceCalendarController::class, 'removeException'])->middleware('role:admin,superadmin');
+        Route::post('service-calendars/{id}/exceptions/bulk',        [ConsoleServiceCalendarController::class, 'bulkExceptions'])->middleware('role:admin,superadmin');
 
         // ── Route Patterns ────────────────────────────────────────────────────
         Route::get('route-patterns',             [ConsoleRoutePatternController::class, 'index']);
@@ -148,6 +150,15 @@ Route::prefix('v1/console')
         Route::delete('scenarios/{id}/overrides/{oid}',  [ConsoleScenarioController::class, 'removeOverride'])->middleware('role:admin,superadmin');
         Route::get('scenarios/{id}/compare',             [ConsoleScenarioController::class, 'compare']);
         Route::post('scenarios/{id}/publish',            [ConsoleScenarioController::class, 'publish'])->middleware('role:superadmin');
+
+        // ── Timetable ─────────────────────────────────────────────────────────
+        Route::get('routes/{id}/timetable', [ConsoleSchedulingController::class, 'timetable']);
+        Route::put('routes/{id}/timetable', [ConsoleSchedulingController::class, 'saveTimetable'])->middleware('role:admin,superadmin');
+
+        // ── Scheduling Tools ──────────────────────────────────────────────────
+        Route::post('scheduling/optimize-headway', [ConsoleSchedulingController::class, 'optimizeHeadway'])->middleware('role:admin,superadmin');
+        Route::get('scheduling/layover-analysis',  [ConsoleSchedulingController::class, 'layoverAnalysis']);
+        Route::get('scheduling/blocks',            [ConsoleSchedulingController::class, 'blocks']);
 
         // ── OTP ────────────────────────────────────────────────────────────────
         Route::get('otp/status',   [OtpController::class, 'status']);

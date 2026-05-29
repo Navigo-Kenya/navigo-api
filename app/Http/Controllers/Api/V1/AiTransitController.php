@@ -49,7 +49,7 @@ class AiTransitController extends Controller
                 'destination_name' => $destination,
                 'primary_route'    => str_starts_with($summary, 'Via ') ? substr($summary, 4) : null,
                 'type'             => 'ai',
-                'user_id'          => auth()->id(),
+                'user_id'          => auth('sanctum')->user()?->getAuthIdentifier(),
             ])->onQueue('default');
         }
 
