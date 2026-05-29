@@ -2,12 +2,20 @@
 
 use App\Http\Controllers\Console\AnalyticsController;
 use App\Http\Controllers\Console\BadgeController;
+use App\Http\Controllers\Console\ConsoleAlertsController;
+use App\Http\Controllers\Console\ConsoleDataQualityController;
 use App\Http\Controllers\Console\BroadcastNotificationController;
 use App\Http\Controllers\Console\ConsoleAgencyController;
 use App\Http\Controllers\Console\ConsoleContributionController;
 use App\Http\Controllers\Console\ConsoleCorridorController;
+use App\Http\Controllers\Console\ConsoleDriverController;
 use App\Http\Controllers\Console\ConsoleGtfsController;
+use App\Http\Controllers\Console\ConsoleFareController;
+use App\Http\Controllers\Console\ConsoleIncidentController;
+use App\Http\Controllers\Console\ConsoleInteropController;
+use App\Http\Controllers\Console\ConsoleLedgerController;
 use App\Http\Controllers\Console\ConsoleNetworkController;
+use App\Http\Controllers\Console\ConsoleRealTimeController;
 use App\Http\Controllers\Console\ConsoleRouteController;
 use App\Http\Controllers\Console\ConsoleRoutePatternController;
 use App\Http\Controllers\Console\ConsoleScenarioController;
@@ -17,6 +25,7 @@ use App\Http\Controllers\Console\ConsoleStopController;
 use App\Http\Controllers\Console\ConsoleTripController;
 use App\Http\Controllers\Console\ConsoleTripFrequencyController;
 use App\Http\Controllers\Console\ConsoleUserController;
+use App\Http\Controllers\Console\ConsoleVehicleController;
 use App\Http\Controllers\Console\DashboardController;
 use App\Http\Controllers\Console\OtpController;
 use Illuminate\Support\Facades\Route;
@@ -115,9 +124,19 @@ Route::prefix('v1/console')
         Route::delete('route-patterns/{id}',     [ConsoleRoutePatternController::class, 'destroy'])->middleware('role:admin,superadmin');
 
         // ── GTFS Operations ───────────────────────────────────────────────────
-        Route::get('gtfs/status',    [ConsoleGtfsController::class, 'status']);
-        Route::post('gtfs/validate', [ConsoleGtfsController::class, 'validate'])->middleware('role:admin,superadmin');
-        Route::post('gtfs/export',   [ConsoleGtfsController::class, 'export'])->middleware('role:superadmin');
+        Route::get('gtfs/status',             [ConsoleGtfsController::class, 'status']);
+        Route::post('gtfs/validate',          [ConsoleGtfsController::class, 'validate'])->middleware('role:admin,superadmin');
+        Route::post('gtfs/export',            [ConsoleGtfsController::class, 'export'])->middleware('role:superadmin');
+        Route::get('gtfs/official-validate',  [ConsoleGtfsController::class, 'officialValidate'])->middleware('role:admin,superadmin');
+        Route::post('gtfs/export-as',         [ConsoleGtfsController::class, 'exportAs'])->middleware('role:admin,superadmin');
+
+        // ── Data Quality ──────────────────────────────────────────────────────
+        Route::get('quality/score',           [ConsoleDataQualityController::class, 'score']);
+        Route::get('quality/drill-down',      [ConsoleDataQualityController::class, 'drillDown']);
+        Route::get('quality/shape-inspector', [ConsoleDataQualityController::class, 'shapeInspector']);
+        Route::get('quality/duplicate-stops', [ConsoleDataQualityController::class, 'duplicateStops']);
+        Route::post('quality/merge-stops',    [ConsoleDataQualityController::class, 'mergeStops'])->middleware('role:admin,superadmin');
+        Route::post('stops/{id}/snap',        [ConsoleDataQualityController::class, 'snapStop'])->middleware('role:admin,superadmin');
 
         // ── Network Analysis ──────────────────────────────────────────────────
         Route::get('network/graph',          [ConsoleNetworkController::class, 'graph']);
@@ -183,4 +202,95 @@ Route::prefix('v1/console')
         Route::post('badges',         [BadgeController::class, 'store'])->middleware('role:admin,superadmin');
         Route::patch('badges/{id}',   [BadgeController::class, 'update'])->middleware('role:admin,superadmin');
         Route::delete('badges/{id}',  [BadgeController::class, 'destroy'])->middleware('role:admin,superadmin');
+
+        // ── Feature 29 — Multi-Modal Layers ───────────────────────────────────
+        Route::get('network/modal-layers',              [ConsoleNetworkController::class, 'modalLayers']);
+        Route::post('network/modal-layers/refresh-osm', [ConsoleNetworkController::class, 'refreshOsmLayer'])->middleware('role:admin,superadmin');
+
+        // ── Feature 31 — Multi-Agency ─────────────────────────────────────────
+        Route::get('network/agencies',               [ConsoleNetworkController::class, 'agencies']);
+        Route::get('network/cross-agency-transfers', [ConsoleNetworkController::class, 'crossAgencyTransfers']);
+
+        // ── Feature 30 — Fare Zones ───────────────────────────────────────────
+        Route::get('fares/zones',          [ConsoleFareController::class, 'zones']);
+        Route::post('fares/zones',         [ConsoleFareController::class, 'storeZone'])->middleware('role:admin,superadmin');
+        Route::patch('fares/zones/{id}',   [ConsoleFareController::class, 'updateZone'])->middleware('role:admin,superadmin');
+        Route::delete('fares/zones/{id}',  [ConsoleFareController::class, 'destroyZone'])->middleware('role:admin,superadmin');
+        Route::get('fares/attributes',        [ConsoleFareController::class, 'fareAttributes']);
+        Route::post('fares/attributes',       [ConsoleFareController::class, 'saveFareAttribute'])->middleware('role:admin,superadmin');
+        Route::delete('fares/attributes/{id}',[ConsoleFareController::class, 'deleteFareAttribute'])->middleware('role:admin,superadmin');
+        Route::get('fares/rules',        [ConsoleFareController::class, 'fareRules']);
+        Route::post('fares/rules',       [ConsoleFareController::class, 'saveFareRule'])->middleware('role:admin,superadmin');
+        Route::delete('fares/rules/{id}',[ConsoleFareController::class, 'deleteFareRule'])->middleware('role:admin,superadmin');
+        Route::get('fares/preview',      [ConsoleFareController::class, 'previewFare']);
+        Route::get('fares/export',       [ConsoleFareController::class, 'exportFareFiles'])->middleware('role:admin,superadmin');
+        Route::get('fares/route-fares',          [ConsoleFareController::class, 'routeBasedFares']);
+        Route::post('fares/route-fares',         [ConsoleFareController::class, 'saveRouteFare'])->middleware('role:admin,superadmin');
+        Route::delete('fares/route-fares/{id}',  [ConsoleFareController::class, 'deleteRouteFare'])->middleware('role:admin,superadmin');
+        Route::get('fares/modifiers',                      [ConsoleFareController::class, 'fareModifiers']);
+        Route::post('fares/modifiers',                     [ConsoleFareController::class, 'saveFareModifier'])->middleware('role:admin,superadmin');
+        Route::patch('fares/modifiers/{id}',               [ConsoleFareController::class, 'updateFareModifier'])->middleware('role:admin,superadmin');
+        Route::delete('fares/modifiers/{id}',              [ConsoleFareController::class, 'deleteFareModifier'])->middleware('role:admin,superadmin');
+        Route::post('fares/modifiers/{id}/toggle',         [ConsoleFareController::class, 'toggleModifier'])->middleware('role:admin,superadmin');
+
+        // ── Feature 32 — Interop Registry + Levels + Pathways ─────────────────
+        Route::get('network/interop',         [ConsoleInteropController::class, 'index']);
+        Route::post('network/interop',        [ConsoleInteropController::class, 'store'])->middleware('role:admin,superadmin');
+        Route::patch('network/interop/{id}',  [ConsoleInteropController::class, 'update'])->middleware('role:admin,superadmin');
+        Route::delete('network/interop/{id}', [ConsoleInteropController::class, 'destroy'])->middleware('role:admin,superadmin');
+        Route::get('network/levels',         [ConsoleInteropController::class, 'levels']);
+        Route::post('network/levels',        [ConsoleInteropController::class, 'storeLevel'])->middleware('role:admin,superadmin');
+        Route::patch('network/levels/{id}',  [ConsoleInteropController::class, 'updateLevel'])->middleware('role:admin,superadmin');
+        Route::delete('network/levels/{id}', [ConsoleInteropController::class, 'destroyLevel'])->middleware('role:admin,superadmin');
+        Route::get('network/pathways/export',    [ConsoleInteropController::class, 'exportPathwayFiles'])->middleware('role:admin,superadmin');
+        Route::get('network/pathways',           [ConsoleInteropController::class, 'pathways']);
+        Route::post('network/pathways',          [ConsoleInteropController::class, 'storePathway'])->middleware('role:admin,superadmin');
+        Route::patch('network/pathways/{id}',    [ConsoleInteropController::class, 'updatePathway'])->middleware('role:admin,superadmin');
+        Route::delete('network/pathways/{id}',   [ConsoleInteropController::class, 'destroyPathway'])->middleware('role:admin,superadmin');
+
+        // ── Fleet — Vehicles & Drivers ─────────────────────────────────────────
+        Route::get('vehicles',         [ConsoleVehicleController::class, 'index']);
+        Route::post('vehicles',        [ConsoleVehicleController::class, 'store'])->middleware('role:admin,superadmin');
+        Route::patch('vehicles/{id}',  [ConsoleVehicleController::class, 'update'])->middleware('role:admin,superadmin');
+        Route::delete('vehicles/{id}', [ConsoleVehicleController::class, 'destroy'])->middleware('role:admin,superadmin');
+
+        Route::get('drivers',          [ConsoleDriverController::class, 'index']);
+        Route::post('drivers',         [ConsoleDriverController::class, 'store'])->middleware('role:admin,superadmin');
+        Route::patch('drivers/{id}',   [ConsoleDriverController::class, 'update'])->middleware('role:admin,superadmin');
+        Route::delete('drivers/{id}',  [ConsoleDriverController::class, 'destroy'])->middleware('role:admin,superadmin');
+
+        // ── Ledger & Clearinghouse ─────────────────────────────────────────────
+        Route::get('ledger/split-configs',             [ConsoleLedgerController::class, 'splitConfigs']);
+        Route::post('ledger/split-configs',            [ConsoleLedgerController::class, 'saveSplitConfig'])->middleware('role:superadmin');
+        Route::get('ledger/wallets',                   [ConsoleLedgerController::class, 'wallets']);
+        Route::get('ledger/wallets/{id}/transactions', [ConsoleLedgerController::class, 'walletTransactions']);
+        Route::get('ledger/fleet-revenue',             [ConsoleLedgerController::class, 'fleetRevenue']);
+        Route::get('ledger/vehicles/{id}/revenue',     [ConsoleLedgerController::class, 'vehicleRevenue']);
+        Route::get('ledger/route-revenue',             [ConsoleLedgerController::class, 'routeRevenue']);
+        Route::post('ledger/test-split',               [ConsoleLedgerController::class, 'testSplit'])->middleware('role:superadmin');
+
+        // ── Real-Time Operations ───────────────────────────────────────────────
+        Route::get('ops/live/positions',              [ConsoleRealTimeController::class, 'livePositions']);
+        Route::get('ops/live/ghost-trips',            [ConsoleRealTimeController::class, 'ghostTrips']);
+        Route::get('ops/live/stats',                  [ConsoleRealTimeController::class, 'liveStats']);
+        Route::get('ops/performance',                 [ConsoleRealTimeController::class, 'delayDashboard']);
+        Route::get('ops/performance/heatmap',         [ConsoleRealTimeController::class, 'delayHeatmap']);
+        Route::get('ops/performance/worst-routes',    [ConsoleRealTimeController::class, 'worstRoutes']);
+        Route::get('ops/positions/history',           [ConsoleRealTimeController::class, 'positionHistory']);
+        Route::get('ops/positions/dates/{vehicleId}', [ConsoleRealTimeController::class, 'availableDates']);
+
+        // ── Service Alerts ─────────────────────────────────────────────────────
+        Route::get('ops/alerts',                [ConsoleAlertsController::class, 'index']);
+        Route::post('ops/alerts',               [ConsoleAlertsController::class, 'store'])->middleware('role:admin,superadmin');
+        Route::patch('ops/alerts/{id}',         [ConsoleAlertsController::class, 'update'])->middleware('role:admin,superadmin');
+        Route::post('ops/alerts/{id}/activate', [ConsoleAlertsController::class, 'activate'])->middleware('role:admin,superadmin');
+        Route::post('ops/alerts/{id}/expire',   [ConsoleAlertsController::class, 'expire'])->middleware('role:admin,superadmin');
+        Route::delete('ops/alerts/{id}',        [ConsoleAlertsController::class, 'destroy'])->middleware('role:admin,superadmin');
+
+        // ── Incidents ──────────────────────────────────────────────────────────
+        Route::get('ops/incidents/stats',         [ConsoleIncidentController::class, 'stats']);
+        Route::get('ops/incidents',               [ConsoleIncidentController::class, 'index']);
+        Route::post('ops/incidents',              [ConsoleIncidentController::class, 'store'])->middleware('role:moderator,admin,superadmin');
+        Route::patch('ops/incidents/{id}',        [ConsoleIncidentController::class, 'update'])->middleware('role:admin,superadmin');
+        Route::post('ops/incidents/{id}/resolve', [ConsoleIncidentController::class, 'resolve'])->middleware('role:admin,superadmin');
     });

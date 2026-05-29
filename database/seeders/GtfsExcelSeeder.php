@@ -17,14 +17,15 @@ class GtfsExcelSeeder extends Seeder
 
         $this->command->info('🚀 Starting High-Performance XLSX GTFS Import...');
 
-        // Clear existing data
-        DB::statement('TRUNCATE TABLE stop_times, stops, trips, shapes, routes CASCADE');
+        // Clear existing data (FK order: frequencies before trips, stops before stop_times)
+        DB::statement('TRUNCATE TABLE trip_frequencies, stop_times, stops, trips, shapes, routes RESTART IDENTITY CASCADE');
 
         $this->seedRoutes();
         $this->seedShapes();
         $this->seedTrips();
         $this->seedStops();
         $this->seedStopTimes();
+        $this->seedFrequencies();
 
         $this->command->info('✅ XLSX Import Complete! Your database is now a spatial powerhouse.');
     }
@@ -71,22 +72,28 @@ class GtfsExcelSeeder extends Seeder
         $reader->close();
     }
 
-    private function seedRoutes()
+    private function seedRoutes(): void
     {
         $this->command->info('🚌 Seeding Routes...');
         $chunk = [];
         foreach ($this->readExcel('routes.xlsx') as $row) {
+            $shortName = $row['route_short_name'] ?? '';
+            [$color, $textColor] = $this->routeColor($shortName);
+
             $chunk[] = [
-                'route_id' => (string) $row['route_id'],
-                'agency_id' => $row['agency_id'] ?? 'AGENCY',
-                'route_short_name' => $row['route_short_name'] ?? '',
-                'route_long_name' => $row['route_long_name'] ?? '',
-                'route_type' => (int) ($row['route_type'] ?? 3),
-                'created_at' => now(),
-                'updated_at' => now(),
+                'route_id'         => (string) $row['route_id'],
+                'agency_id'        => $row['agency_id'] ?? 'AGENCY',
+                'route_short_name' => $shortName,
+                'route_long_name'  => $row['route_long_name'] ?? '',
+                'route_type'       => (int) ($row['route_type'] ?? 3),
+                'route_desc'       => isset($row['route_desc']) && $row['route_desc'] !== '' ? (string) $row['route_desc'] : null,
+                'route_color'      => $color,
+                'route_text_color' => $textColor,
+                'created_at'       => now(),
+                'updated_at'       => now(),
             ];
 
-            if (count($chunk) === 1000) {
+            if (\count($chunk) === 1000) {
                 DB::table('routes')->insert($chunk);
                 $chunk = [];
             }
@@ -139,23 +146,25 @@ class GtfsExcelSeeder extends Seeder
         DB::statement("DROP TABLE temp_shape_points");
     }
 
-    private function seedTrips()
+    private function seedTrips(): void
     {
         $this->command->info('🚏 Seeding Trips...');
         $chunk = [];
         foreach ($this->readExcel('trips.xlsx') as $row) {
             $chunk[] = [
-                'trip_id' => (string) $row['trip_id'],
-                'route_id' => (string) $row['route_id'],
-                'service_id' => $row['service_id'] ?? 'daily',
-                'trip_headsign' => $row['trip_headsign'] ?? '',
-                'direction_id' => isset($row['direction_id']) && $row['direction_id'] !== '' ? (int)$row['direction_id'] : null,
-                'shape_id' => (string) $row['shape_id'],
-                'created_at' => now(),
-                'updated_at' => now(),
+                'trip_id'         => (string) $row['trip_id'],
+                'route_id'        => (string) $row['route_id'],
+                'service_id'      => $row['service_id'] ?? 'daily',
+                'trip_headsign'   => $row['trip_headsign'] ?? '',
+                'direction_id'    => isset($row['direction_id']) && $row['direction_id'] !== '' ? (int) $row['direction_id'] : null,
+                'shape_id'        => (string) $row['shape_id'],
+                'scheduling_type' => $row['scheduling_type'] ?? 'scheduled',
+                'block_id'        => isset($row['block_id']) && $row['block_id'] !== '' ? (string) $row['block_id'] : null,
+                'created_at'      => now(),
+                'updated_at'      => now(),
             ];
 
-            if (count($chunk) === 1000) {
+            if (\count($chunk) === 1000) {
                 DB::table('trips')->insert($chunk);
                 $chunk = [];
             }
@@ -195,24 +204,86 @@ class GtfsExcelSeeder extends Seeder
         }
     }
 
-    private function seedStopTimes()
+    private function seedStopTimes(): void
     {
         $this->command->info('⏱️ Seeding Stop Times (This might take a minute)...');
         $chunk = [];
         foreach ($this->readExcel('stop_times.xlsx') as $row) {
             $chunk[] = [
-                'trip_id' => (string) $row['trip_id'],
-                'stop_id' => (string) $row['stop_id'],
-                'arrival_time' => $row['arrival_time'] ?? '00:00:00',
-                'departure_time' => $row['departure_time'] ?? '00:00:00',
-                'stop_sequence' => (int) $row['stop_sequence'],
+                'trip_id'             => (string) $row['trip_id'],
+                'stop_id'             => (string) $row['stop_id'],
+                'arrival_time'        => $row['arrival_time'] ?? '00:00:00',
+                'departure_time'      => $row['departure_time'] ?? '00:00:00',
+                'stop_sequence'       => (int) $row['stop_sequence'],
+                'pickup_type'         => isset($row['pickup_type']) && $row['pickup_type'] !== '' ? (int) $row['pickup_type'] : 0,
+                'drop_off_type'       => isset($row['drop_off_type']) && $row['drop_off_type'] !== '' ? (int) $row['drop_off_type'] : 0,
+                'shape_dist_traveled' => isset($row['shape_dist_traveled']) && $row['shape_dist_traveled'] !== '' ? (float) $row['shape_dist_traveled'] : null,
             ];
 
-            if (count($chunk) === 5000) {
+            if (\count($chunk) === 5000) {
                 DB::table('stop_times')->insertOrIgnore($chunk);
                 $chunk = [];
             }
         }
         if (!empty($chunk)) DB::table('stop_times')->insertOrIgnore($chunk);
+    }
+
+    private function seedFrequencies(): void
+    {
+        $this->command->info('🔁 Seeding Trip Frequencies...');
+        $chunk = [];
+        foreach ($this->readExcel('frequencies.xlsx') as $row) {
+            if (empty($row['trip_id'])) continue;
+            $chunk[] = [
+                'trip_id'      => (string) $row['trip_id'],
+                'start_time'   => $row['start_time'] ?? '00:00:00',
+                'end_time'     => $row['end_time'] ?? '00:00:00',
+                'headway_secs' => (int) ($row['headway_secs'] ?? 600),
+                'exact_times'  => isset($row['exact_times']) && $row['exact_times'] !== '' ? (int) $row['exact_times'] : 0,
+                'created_at'   => now(),
+                'updated_at'   => now(),
+            ];
+
+            if (\count($chunk) === 1000) {
+                DB::table('trip_frequencies')->insert($chunk);
+                $chunk = [];
+            }
+        }
+        if (!empty($chunk)) DB::table('trip_frequencies')->insert($chunk);
+    }
+
+    private function routeColor(string $shortName): array
+    {
+        $hue = abs(crc32($shortName)) % 360;
+        [$r, $g, $b] = $this->hslToRgb($hue / 360.0, 0.75, 0.45);
+        $bg        = sprintf('%02X%02X%02X', $r, $g, $b);
+        $luminance = (0.2126 * $r + 0.7152 * $g + 0.0722 * $b) / 255;
+        $text      = $luminance > 0.40 ? '000000' : 'FFFFFF';
+        return [$bg, $text];
+    }
+
+    private function hslToRgb(float $h, float $s, float $l): array
+    {
+        if ($s === 0.0) {
+            $v = (int) round($l * 255);
+            return [$v, $v, $v];
+        }
+        $q = $l < 0.5 ? $l * (1 + $s) : $l + $s - $l * $s;
+        $p = 2 * $l - $q;
+        return [
+            (int) round($this->hueToRgb($p, $q, $h + 1 / 3) * 255),
+            (int) round($this->hueToRgb($p, $q, $h)         * 255),
+            (int) round($this->hueToRgb($p, $q, $h - 1 / 3) * 255),
+        ];
+    }
+
+    private function hueToRgb(float $p, float $q, float $t): float
+    {
+        if ($t < 0) $t += 1;
+        if ($t > 1) $t -= 1;
+        if ($t < 1 / 6) return $p + ($q - $p) * 6 * $t;
+        if ($t < 1 / 2) return $q;
+        if ($t < 2 / 3) return $p + ($q - $p) * (2 / 3 - $t) * 6;
+        return $p;
     }
 }

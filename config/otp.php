@@ -22,4 +22,7 @@ return [
     'health_check_url'     => env('OTP_HEALTH_CHECK_URL',     'http://127.0.0.1:8080/otp'),
     'health_check_retries' => (int) env('OTP_HEALTH_CHECK_RETRIES', 30),
     'health_check_delay'   => (int) env('OTP_HEALTH_CHECK_DELAY',   10),
+
+    // Road snapper for stop-to-road alignment: 'mapbox' | 'google' | 'none'
+    'road_snapper_driver'  => env('ROAD_SNAPPER_DRIVER', 'none'),
 ];

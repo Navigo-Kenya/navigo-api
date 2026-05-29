@@ -13,7 +13,7 @@ return new class extends Migration
             $table->string('service_id')->index();
             $table->foreign('service_id')->references('service_id')->on('service_calendars')->onDelete('cascade');
             $table->date('date');
-            $table->tinyInteger('exception_type');
+            $table->tinyInteger('exception_type'); // 1 = added service, 2 = removed service
             $table->string('note')->nullable();
             $table->timestamps();
             $table->unique(['service_id', 'date']);

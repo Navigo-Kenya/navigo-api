@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\Api\V1\AiTransitController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\DriverPositionController;
+use App\Http\Controllers\Console\ConsoleAlertsController;
 use App\Http\Controllers\Api\V1\CommunityController;
 use App\Http\Controllers\Api\V1\ContributionController;
 use App\Http\Controllers\Api\V1\DeviceTokenController;
@@ -84,5 +86,9 @@ Route::prefix('v1')->group(function () {
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/contributions/{id}/vote', [ContributionController::class, 'vote']);
+        Route::post('driver/position', [DriverPositionController::class, 'store']);
     });
+
+    // ── Public GTFS-RT feeds ───────────────────────────────────────
+    Route::get('gtfs-rt/alerts', [ConsoleAlertsController::class, 'gtfsRtFeed']);
 });

@@ -3,6 +3,10 @@
 namespace App\Services;
 
 use App\Models\Agency;
+use App\Models\FareAttribute;
+use App\Models\FareRule;
+use App\Models\Level;
+use App\Models\Pathway;
 use App\Models\Route;
 use App\Models\ServiceCalendar;
 use App\Models\ServiceException;
@@ -35,6 +39,10 @@ class GtfsExportService
             $this->writeFrequencies($tmpDir);
             $this->writeStopTimes($tmpDir);
             $this->writeShapes($tmpDir);
+            $this->writeFareAttributes($tmpDir);
+            $this->writeFareRules($tmpDir);
+            $this->writeLevels($tmpDir);
+            $this->writePathways($tmpDir);
 
             $storageDir    = storage_path('app/gtfs');
             $versionedPath = $storageDir . DIRECTORY_SEPARATOR . 'gtfs_' . now()->format('Ymd_His') . '.zip';
@@ -277,6 +285,69 @@ class GtfsExportService
         }
 
         $this->writeCsv($path . DIRECTORY_SEPARATOR . 'shapes.txt', $rows);
+    }
+
+    private function writeFareAttributes(string $path): void
+    {
+        $attrs = FareAttribute::all();
+        if ($attrs->isEmpty()) return;
+
+        $rows = [['fare_id', 'price', 'currency_type', 'payment_method', 'transfers', 'agency_id', 'transfer_duration']];
+        foreach ($attrs as $a) {
+            $rows[] = [
+                $a->fare_id, $a->price, $a->currency_type,
+                $a->payment_method, $a->transfers ?? '',
+                $a->agency_id, $a->transfer_duration ?? '',
+            ];
+        }
+        $this->writeCsv($path . DIRECTORY_SEPARATOR . 'fare_attributes.txt', $rows);
+    }
+
+    private function writeFareRules(string $path): void
+    {
+        $rules = FareRule::all();
+        if ($rules->isEmpty()) return;
+
+        $rows = [['fare_id', 'route_id', 'origin_id', 'destination_id', 'contains_id']];
+        foreach ($rules as $r) {
+            $rows[] = [
+                $r->fare_id, $r->route_id ?? '', $r->origin_id ?? '',
+                $r->destination_id ?? '', $r->contains_id ?? '',
+            ];
+        }
+        $this->writeCsv($path . DIRECTORY_SEPARATOR . 'fare_rules.txt', $rows);
+    }
+
+    private function writeLevels(string $path): void
+    {
+        $levels = Level::all();
+        if ($levels->isEmpty()) return;
+
+        $rows = [['level_id', 'level_index', 'level_name', 'parent_station']];
+        foreach ($levels as $l) {
+            $rows[] = [$l->level_id, $l->level_index, $l->level_name, $l->stop_id];
+        }
+        $this->writeCsv($path . DIRECTORY_SEPARATOR . 'levels.txt', $rows);
+    }
+
+    private function writePathways(string $path): void
+    {
+        $pathways = Pathway::all();
+        if ($pathways->isEmpty()) return;
+
+        $rows = [['pathway_id', 'from_stop_id', 'to_stop_id', 'pathway_mode', 'is_bidirectional',
+                  'length', 'traversal_time', 'stair_count', 'max_slope', 'min_width',
+                  'signposted_as', 'reversed_signposted_as']];
+        foreach ($pathways as $p) {
+            $rows[] = [
+                $p->pathway_id, $p->from_stop_id, $p->to_stop_id,
+                $p->pathway_mode, $p->is_bidirectional ? 1 : 0,
+                $p->length ?? '', $p->traversal_time ?? '', $p->stair_count ?? '',
+                $p->max_slope ?? '', $p->min_width ?? '',
+                $p->signposted_as ?? '', $p->reversed_signposted_as ?? '',
+            ];
+        }
+        $this->writeCsv($path . DIRECTORY_SEPARATOR . 'pathways.txt', $rows);
     }
 
     private function writeCsv(string $filePath, array $rows): void
