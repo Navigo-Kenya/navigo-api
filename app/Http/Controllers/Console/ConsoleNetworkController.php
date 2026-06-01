@@ -221,7 +221,7 @@ class ConsoleNetworkController extends Controller
             });
         }
 
-        // OSM layers — served from pre-stored GeoJSON files
+        // OSM layers, served from pre-stored GeoJSON files
         foreach (['cycling', 'pedestrian'] as $osmMode) {
             $osmLabels = ['cycling' => 'Cycling paths', 'pedestrian' => 'Pedestrian areas'];
             $osmColors = ['cycling' => '84CC16',        'pedestrian' => 'A855F7'];

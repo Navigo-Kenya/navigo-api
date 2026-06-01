@@ -20,6 +20,10 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
+        // Production, marketing website & future web app
+        'https://hopln.app',
+        'https://www.hopln.app',
+        // Local dev
         'http://localhost:5173',
         'http://localhost:4173',
         'http://localhost:3000',

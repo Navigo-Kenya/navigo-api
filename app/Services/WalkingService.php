@@ -19,9 +19,9 @@ class WalkingService
      * Returns a road-snapped walking route between two points.
      *
      * Caching layers (cheapest first):
-     *   1. DB table `cached_walking_routes` keyed by coords rounded to 4dp — permanent
-     *   2. Google Directions API (walking) — called at most once per unique O/D pair
-     *   3. OTP fallback — used when walk < 100 m, API key missing, or API fails
+     *   1. DB table `cached_walking_routes` keyed by coords rounded to 4dp, permanent
+     *   2. Google Directions API (walking), called at most once per unique O/D pair
+     *   3. OTP fallback, used when walk < 100 m, API key missing, or API fails
      *
      * @param  array $otpCoords     [[lat,lng],...] from OTP legGeometry
      * @param  array $otpSteps      walk steps from OTP
@@ -44,7 +44,7 @@ class WalkingService
             'duration'    => $otpDurationS,
         ];
 
-        // Very short walks or missing key — OTP geometry is precise enough
+        // Very short walks or missing key, OTP geometry is precise enough
         if ($otpDistanceM < 100 || empty($this->apiKey)) {
             return $fallback;
         }
@@ -87,7 +87,7 @@ class WalkingService
                 'duration_s'  => $result['duration'],
             ]);
         } catch (\Exception $e) {
-            // Duplicate insert from a race condition — not critical
+            // Duplicate insert from a race condition, not critical
             Log::debug('WalkingService cache write skipped', ['error' => $e->getMessage()]);
         }
 

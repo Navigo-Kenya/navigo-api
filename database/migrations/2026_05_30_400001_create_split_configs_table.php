@@ -30,7 +30,7 @@ return new class extends Migration
             'vehicle_pct'  => 85.00,
             'sacco_pct'    => 10.00,
             'platform_pct' => 5.00,
-            'notes'        => 'Global default — applies to all agencies without a specific config',
+            'notes'        => 'Global default, applies to all agencies without a specific config',
             'is_active'    => true,
             'created_at'   => now(),
             'updated_at'   => now(),

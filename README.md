@@ -21,7 +21,7 @@
 
 ## Overview
 
-Hopln API is the server-side backbone of the **Hopln** transit platform — a public-transport assistant for Nairobi's matatu and bus network. It exposes three surfaces:
+Hopln API is the server-side backbone of the **Hopln** transit platform, a public-transport assistant for Nairobi's matatu and bus network. It exposes three surfaces:
 
 | Surface | Path prefix | Audience |
 |---------|-------------|----------|
@@ -251,7 +251,7 @@ Computes 6 metrics cached 1 hour under key `quality:score`.
 
 **Overall score**: weighted avg of the 4 positive metrics − (orphans × 0.5) − (duplicates × 1.0), clamped to `[0, 100]`.
 
-`drillDown(metric)` returns the actual entity list for any metric (lazy — only runs on demand).
+`drillDown(metric)` returns the actual entity list for any metric (lazy, only runs on demand).
 
 ---
 
@@ -269,7 +269,7 @@ Returns `{ snapped, original_lat, original_lng, snapped_lat, snapped_lng, road_n
 
 ---
 
-### Export Architecture — `Services/Export/`
+### Export Architecture, `Services/Export/`
 
 ```
 ExporterContract (interface)
@@ -340,13 +340,37 @@ The `Stop.location` and `Shape.path` columns are PostGIS geometry columns. All p
 
 ---
 
+## Production Deployment
+
+The full deployment guide — server setup, Docker Compose stack, Cloudflare Pages, R2 backups, and CI/CD — lives in **[DEPLOYMENT.md](../DEPLOYMENT.md)** at the repository root.
+
+### Production vs local differences
+
+| Variable | Local | Production |
+|---|---|---|
+| `APP_ENV` | `local` | `production` |
+| `APP_DEBUG` | `true` | `false` |
+| `DB_HOST` | `127.0.0.1` | `postgres` (Docker service name) |
+| `REDIS_CLIENT` | `predis` | `phpredis` (C extension) |
+| `REDIS_HOST` | `127.0.0.1` | `redis` (Docker service name) |
+| `CACHE_STORE` | `database` | `redis` |
+| `QUEUE_CONNECTION` | `database` | `redis` |
+| `OTP_BASE_URL` | `http://127.0.0.1:8080` | `http://otp:8080` (Docker service name) |
+| `OTP_DEPLOY_DRIVER` | `local` | `local` |
+| `OTP_DATA_PATH` | `D:\React\nairobi-otp\data` | `/opt/hopln/otp-data` |
+| `OTP_BUILD_CMD` | Windows cmd string | `/opt/hopln/api/scripts/otp-rebuild.sh` |
+
+Copy `.env.production` to `.env` on the server and fill in the secrets. pgAdmin is not included in the production compose file.
+
+---
+
 ## Getting Started
 
 ### Prerequisites
 
 - PHP 8.3 + Composer
 - Docker (PostgreSQL + PostGIS, Redis, OTP)
-- Java 11+ (optional — only for Google GTFS Validator)
+- Java 11+ (optional, only for Google GTFS Validator)
 
 ### Installation
 
@@ -390,7 +414,7 @@ APP_KEY=
 APP_ENV=local
 APP_URL=http://localhost:8000
 
-# Database — PostgreSQL + PostGIS
+# Database, PostgreSQL + PostGIS
 DB_CONNECTION=pgsql
 DB_HOST=127.0.0.1
 DB_PORT=5432
@@ -398,7 +422,7 @@ DB_DATABASE=hopln
 DB_USERNAME=hopln
 DB_PASSWORD=
 
-# Redis — cache, queue, sessions
+# Redis, cache, queue, sessions
 REDIS_CLIENT=predis
 REDIS_HOST=127.0.0.1
 REDIS_PASSWORD=null
@@ -418,14 +442,14 @@ GOOGLE_MAPS_API_KEY=
 OTP_BASE_URL=http://localhost:8080
 OTP_CACHE_TTL=300
 
-# Mapbox — server-side geocoding + road snapping
+# Mapbox, server-side geocoding + road snapping
 MAPBOX_API_KEY=
 
-# Road snapper — driver: mapbox | google | none (default: none)
+# Road snapper, driver: mapbox | google | none (default: none)
 ROAD_SNAPPER_DRIVER=none
 GOOGLE_ROADS_API_KEY=   # only needed if ROAD_SNAPPER_DRIVER=google
 
-# Google GTFS Validator (optional — Feature 24)
+# Google GTFS Validator (optional, Feature 24)
 GTFS_VALIDATOR_JAR_PATH=   # absolute path to gtfs-validator-*.jar
 GTFS_VALIDATOR_JAVA_BIN=java
 
@@ -461,14 +485,14 @@ php artisan test --filter=RouteCalculationTest
 
 ## Transit Data Strategy
 
-Hopln's routing data originates from the **Digital Matatus project** — the first complete GTFS dataset for Nairobi's informal transit network, produced by the University of Nairobi and Columbia University. It maps every named matatu route: stop locations, route alignments, and transfer points.
+Hopln's routing data originates from the **Digital Matatus project**, the first complete GTFS dataset for Nairobi's informal transit network, produced by the University of Nairobi and Columbia University. It maps every named matatu route: stop locations, route alignments, and transfer points.
 
 **What GTFS does well in Nairobi**: stop proximity, route discovery, multi-leg journey planning. The physical route alignments change slowly, so this data is reliably accurate.
 
-**Where static GTFS falls short**: matatus are *fill-and-go*, not scheduled. A static timetable implies a fixed departure time — a concept that does not exist in Nairobi. Two factors the Hopln algorithm accounts for that standard GTFS routing ignores:
+**Where static GTFS falls short**: matatus are *fill-and-go*, not scheduled. A static timetable implies a fixed departure time, a concept that does not exist in Nairobi. Two factors the Hopln algorithm accounts for that standard GTFS routing ignores:
 
-- **Fill-Time Factor** — per-terminus dwell time before a vehicle departs (varies 2–25 min depending on time of day, route, and demand). Stored as a rolling average from GPS data once the IoT layer is live.
-- **Mshukiwa Factor** — per-segment travel-time multiplier that accounts for roadside loading and alighting at non-official stops on high-demand corridors (Ngong Road, Thika Road, Mombasa Road).
+- **Fill-Time Factor**, per-terminus dwell time before a vehicle departs (varies 2–25 min depending on time of day, route, and demand). Stored as a rolling average from GPS data once the IoT layer is live.
+- **Mshukiwa Factor**, per-segment travel-time multiplier that accounts for roadside loading and alighting at non-official stops on high-demand corridors (Ngong Road, Thika Road, Mombasa Road).
 
 The long-term roadmap includes a full GTFS-RT loop: IoT GPS devices on vehicles → MQTT ingestion → live vehicle positions → OTP real-time feed → accurate departure predictions in the passenger app.
 

@@ -15,7 +15,7 @@ return [
     'scp_target' => env('OTP_SCP_TARGET', ''),       // user@host:/path/to/gtfs.zip
     'scp_key'    => env('OTP_SCP_KEY',    ''),       // path to SSH private key
 
-    // Graph rebuild — arbitrary shell command; empty = skip
+    // Graph rebuild, arbitrary shell command; empty = skip
     'build_cmd' => env('OTP_BUILD_CMD', ''),
 
     // Health check after rebuild

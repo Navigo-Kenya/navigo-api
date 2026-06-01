@@ -27,7 +27,7 @@ class LocationService
 
     /**
      * Returns all stops as a slim array [id, name, lat, lng].
-     * Cached for 1 hour — stops dataset rarely changes.
+     * Cached for 1 hour, stops dataset rarely changes.
      */
     public function getAllStops(): array
     {
@@ -49,7 +49,7 @@ class LocationService
 
     /**
      * Returns full stop detail + resolved routes for a single stop.
-     * Cached 30 min per stop — route assignments rarely change.
+     * Cached 30 min per stop, route assignments rarely change.
      */
     public function getStop(string $id): ?array
     {
@@ -95,8 +95,8 @@ class LocationService
      * Search stops by name/aliases.
      *
      * Matching strategy (OR of two conditions):
-     *   1. ILIKE substring  — "ngong" matches "Ngong Road Stage" instantly, score = 0.9
-     *   2. pg_trgm fuzzy    — handles misspellings, score = similarity()
+     *   1. ILIKE substring , "ngong" matches "Ngong Road Stage" instantly, score = 0.9
+     *   2. pg_trgm fuzzy   , handles misspellings, score = similarity()
      *
      * Hard minimum of 0.15 on the blended score so truly unrelated stops are
      * excluded and the frontend geocoding fallback kicks in instead.

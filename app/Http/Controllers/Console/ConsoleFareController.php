@@ -361,7 +361,7 @@ class ConsoleFareController extends Controller
     {
         if ($mod->applies_to === 'all') return true;
         if ($mod->applies_to === 'agency' && $mod->applies_to_id === $attr->agency_id) return true;
-        // Route/zone checks require the caller to pass context — for now treat as applicable
+        // Route/zone checks require the caller to pass context, for now treat as applicable
         return false;
     }
 

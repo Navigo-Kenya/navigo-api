@@ -33,7 +33,7 @@ class ContributionController extends Controller
             'data'        => 'nullable|array',
         ]);
 
-        // One review per stop per user — upsert
+        // One review per stop per user, upsert
         if ($validated['type'] === 'stop_review' && !empty($validated['stop_id'])) {
             $existing = Contribution::where('user_id', $request->user()->id)
                 ->where('type', 'stop_review')

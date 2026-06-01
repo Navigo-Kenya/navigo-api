@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\AiTransitController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\CoverageController;
 use App\Http\Controllers\Api\V1\DriverPositionController;
 use App\Http\Controllers\Console\ConsoleAlertsController;
 use App\Http\Controllers\Api\V1\CommunityController;
@@ -48,6 +49,9 @@ Route::prefix('v1')->group(function () {
             Route::get('notifications/unread-count',         [NotificationController::class, 'unreadCount']);
         });
     });
+
+    // ── Public coverage data (website) ────────────────────────────
+    Route::get('/coverage', [CoverageController::class, 'index'])->middleware('throttle:60,1');
 
     // ── Geolocation & Stops ────────────────────────────────────────
     Route::get('/stops/all',    [LocationController::class, 'all']);

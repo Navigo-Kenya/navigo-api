@@ -35,7 +35,7 @@ class BadgeSeeder extends Seeder
             [
                 'slug'               => 'photo_pro',
                 'name'               => 'Photo Pro',
-                'description'        => 'Added 10 or more stop photos — a true visual contributor.',
+                'description'        => 'Added 10 or more stop photos, a true visual contributor.',
                 'icon'               => 'camera',
                 'color'              => '#7C3AED',
                 'requirement_type'   => 'type_count',
@@ -46,7 +46,7 @@ class BadgeSeeder extends Seeder
             [
                 'slug'               => 'delay_spotter',
                 'name'               => 'Delay Spotter',
-                'description'        => 'Reported 5 or more delay alerts — keeping commuters informed.',
+                'description'        => 'Reported 5 or more delay alerts, keeping commuters informed.',
                 'icon'               => 'time-outline',
                 'color'              => '#EF4444',
                 'requirement_type'   => 'type_count',
@@ -68,7 +68,7 @@ class BadgeSeeder extends Seeder
             [
                 'slug'               => 'fact_finder',
                 'name'               => 'Fact Finder',
-                'description'        => 'Had 5 stop edits approved — improving data accuracy.',
+                'description'        => 'Had 5 stop edits approved, improving data accuracy.',
                 'icon'               => 'create-outline',
                 'color'              => '#3B82F6',
                 'requirement_type'   => 'approved_type_count',
@@ -79,7 +79,7 @@ class BadgeSeeder extends Seeder
             [
                 'slug'               => 'route_pioneer',
                 'name'               => 'Route Pioneer',
-                'description'        => 'Had a new stop suggestion approved — expanding the network.',
+                'description'        => 'Had a new stop suggestion approved, expanding the network.',
                 'icon'               => 'navigate-outline',
                 'color'              => '#10B981',
                 'requirement_type'   => 'approved_type_count',
@@ -90,7 +90,7 @@ class BadgeSeeder extends Seeder
             [
                 'slug'               => 'community_voice',
                 'name'               => 'Community Voice',
-                'description'        => 'Wrote 10 or more stop reviews — helping fellow commuters.',
+                'description'        => 'Wrote 10 or more stop reviews, helping fellow commuters.',
                 'icon'               => 'chatbubbles-outline',
                 'color'              => '#F59E0B',
                 'requirement_type'   => 'type_count',

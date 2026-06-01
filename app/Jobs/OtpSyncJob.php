@@ -18,7 +18,7 @@ class OtpSyncJob implements ShouldQueue
 
     // Graph rebuild (3-8 min) + OTP load (1-3 min) + health polling (up to 5 min) = allow 20 min
     public int $timeout = 1200;
-    // Do not auto-retry — rebuild failures need human inspection
+    // Do not auto-retry, rebuild failures need human inspection
     public int $tries = 1;
 
     public function handle(
@@ -38,7 +38,7 @@ class OtpSyncJob implements ShouldQueue
         ]);
 
         try {
-            // Step 1 — Pre-export GTFS validation gate
+            // Step 1, Pre-export GTFS validation gate
             $this->checkCancelled();
             $validation = $validator->validate();
             Cache::put('otp:validation_errors', $validation->toArray(), now()->addHour());
@@ -51,14 +51,14 @@ class OtpSyncJob implements ShouldQueue
                 OtpLog::create([
                     'event'   => 'gtfs_build',
                     'status'  => 'failed',
-                    'message' => "Aborting sync — {$errorCount} GTFS validation error(s). Fix errors and retry.",
+                    'message' => "Aborting sync, {$errorCount} GTFS validation error(s). Fix errors and retry.",
                 ]);
 
                 $this->fail(new \RuntimeException("GTFS validation failed with {$errorCount} error(s)."));
                 return;
             }
 
-            // Step 2 — Export GTFS files and produce a zip
+            // Step 2, Export GTFS files and produce a zip
             $this->checkCancelled();
 
             OtpLog::create([
@@ -75,7 +75,7 @@ class OtpSyncJob implements ShouldQueue
                 'message' => "GTFS zip created at {$zipPath}",
             ]);
 
-            // Step 3 — Deliver zip to OTP data directory
+            // Step 3, Deliver zip to OTP data directory
             $this->checkCancelled();
             $driver = config('otp.deploy_driver', 'local');
 
@@ -93,7 +93,7 @@ class OtpSyncJob implements ShouldQueue
                 'message' => "gtfs.zip delivered via '{$driver}' driver.",
             ]);
 
-            // Step 4 — Trigger graph rebuild
+            // Step 4, Trigger graph rebuild
             $this->checkCancelled();
 
             OtpLog::create([
@@ -110,7 +110,7 @@ class OtpSyncJob implements ShouldQueue
                 'message' => 'OTP graph rebuild completed.',
             ]);
 
-            // Step 5 — Wait for OTP to be healthy
+            // Step 5, Wait for OTP to be healthy
             $this->checkCancelled();
 
             OtpLog::create([
@@ -127,7 +127,7 @@ class OtpSyncJob implements ShouldQueue
                 'message' => 'OTP is healthy and serving requests.',
             ]);
 
-            // Step 6 — Finalise
+            // Step 6, Finalise
             $duration = now()->diffInSeconds($startedAt);
 
             Cache::put('otp:last_sync',      now()->toIso8601String(), now()->addYear());

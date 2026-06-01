@@ -17,7 +17,7 @@ class OtpDeliveryService
         match ($driver) {
             'local' => $this->deliverLocal($zipPath),
             'scp'   => $this->deliverScp($zipPath),
-            'none'  => Log::info('[OtpDelivery] Driver is "none" — skipping delivery.'),
+            'none'  => Log::info('[OtpDelivery] Driver is "none", skipping delivery.'),
             default => throw new \RuntimeException("Unknown OTP_DEPLOY_DRIVER: {$driver}"),
         };
     }
@@ -31,7 +31,7 @@ class OtpDeliveryService
         $cmd = config('otp.build_cmd', '');
 
         if (empty($cmd)) {
-            Log::info('[OtpDelivery] OTP_BUILD_CMD is empty — skipping graph rebuild.');
+            Log::info('[OtpDelivery] OTP_BUILD_CMD is empty, skipping graph rebuild.');
             return;
         }
 

@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 
 /**
- * Structural NeTEx XML stub — covers agencies (operators), stops (quays), and routes (lines).
+ * Structural NeTEx XML stub, covers agencies (operators), stops (quays), and routes (lines).
  * Full NeTEx (timetables, vehicle journeys, etc.) is out of scope for this implementation.
  */
 class NeTExExporter implements ExporterContract

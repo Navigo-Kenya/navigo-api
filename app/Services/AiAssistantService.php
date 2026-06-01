@@ -21,19 +21,19 @@ class AiAssistantService
     {
         return <<<'PROMPT'
 You are Kwame, a warm, friendly, and knowledgeable transit assistant for Nairobi's public transport network.
-Speak casually and empathetically — like a helpful local friend, not a robot.
+Speak casually and empathetically, like a helpful local friend, not a robot.
 You can chat about transport topics: matatu routes, fares, traffic, safety tips, general Nairobi knowledge, and small talk.
 
 CRITICAL RULE: You MUST always respond by calling exactly ONE of these two tools:
-- `calculate_route` — ONLY when you have BOTH an origin AND a destination confirmed
-- `chat_or_clarify` — for EVERYTHING else (greetings, clarifying questions, tips, chitchat, error messages)
+- `calculate_route`, ONLY when you have BOTH an origin AND a destination confirmed
+- `chat_or_clarify`, for EVERYTHING else (greetings, clarifying questions, tips, chitchat, error messages)
 
 You MUST NEVER produce a plain-text response. Every response must be a tool call.
 
 ROUTING RULES:
 
 1. CALL `calculate_route` IMMEDIATELY when you have BOTH an origin AND a destination.
-   - If both are in ONE message: call `calculate_route` right now — do NOT wait.
+   - If both are in ONE message: call `calculate_route` right now, do NOT wait.
    - If origin was established earlier and user now gives a destination: call `calculate_route` NOW.
    - Include a warm `holding_phrase` in the tool args (shown to the user while the route loads).
 
@@ -44,7 +44,7 @@ ROUTING RULES:
    "from here", or any similar phrase, pass "current location" as the `from` parameter.
 
 4. SAVED LOCATIONS ("home", "work", "school", "office"): These are personal alias keywords.
-   - Pass them as-is to `calculate_route` — the backend resolves them to real coordinates automatically from the user's profile.
+   - Pass them as-is to `calculate_route`, the backend resolves them to real coordinates automatically from the user's profile.
 
 HOLDING PHRASES for `calculate_route`:
 - "Let me check the best matatu routes from [origin] to [destination] real quick..."
@@ -53,7 +53,7 @@ HOLDING PHRASES for `calculate_route`:
 - "Checking routes for you now..."
 
 RESPONSE STYLE:
-- Short and conversational — 1 to 3 sentences maximum.
+- Short and conversational, 1 to 3 sentences maximum.
 - Plain text only. No markdown, no bullet points.
 - If no route is found, suggest alternatives warmly.
 PROMPT;
@@ -112,7 +112,7 @@ PROMPT;
     }
 
     /**
-     * Main conversational entry point — one turn of a persistent session.
+     * Main conversational entry point, one turn of a persistent session.
      */
     public function chat(
         string  $sessionId,
@@ -120,7 +120,7 @@ PROMPT;
         ?array  $audioFile = null,
         ?float  $userLat   = null,
         ?float  $userLng   = null,
-        array   $aliases   = [],   // ['home' => ['lat' => x, 'lng' => y], ...]  — today: GPS fallback; with auth: real saved addresses
+        array   $aliases   = [],   // ['home' => ['lat' => x, 'lng' => y], ...] , today: GPS fallback; with auth: real saved addresses
     ): ?array {
         $apiKey     = env('OPENAI_API_KEY');
         $transcript = null;
@@ -137,7 +137,7 @@ PROMPT;
         $history   = Cache::get("kwame:{$sessionId}", []);
         $history[] = ['role' => 'user', 'content' => $text];
 
-        // First GPT call — tool_choice: required forces a tool call on every turn
+        // First GPT call, tool_choice: required forces a tool call on every turn
         $messages = $this->buildMessages($history, $userLat, $userLng);
         $first    = $this->callChat($apiKey, $messages, 'required');
         if (!$first) return null;
@@ -159,7 +159,7 @@ PROMPT;
                     : $this->randomHoldingPhrase($args['from'] ?? '', $args['to'] ?? '');
 
                 // Resolve alias keywords (home / work / school / office) before geocoding.
-                // Coords come from the client's UserContext — today: GPS; with auth: saved profile addresses.
+                // Coords come from the client's UserContext, today: GPS; with auth: saved profile addresses.
                 $fromNorm    = strtolower(trim($args['from'] ?? ''));
                 $toNorm      = strtolower(trim($args['to']   ?? ''));
                 $fromIsAlias = $this->isAliasKeyword($fromNorm);
@@ -180,7 +180,7 @@ PROMPT;
                         'reason'  => 'unresolved_alias',
                         'message' => "'{$missingAlias}' is a saved-location keyword but no address is on file yet. Ask the user to share their actual {$missingAlias} address or street name.",
                     ]);
-                    Log::info('Alias keyword has no coords — asking user', ['keyword' => $missingAlias]);
+                    Log::info('Alias keyword has no coords, asking user', ['keyword' => $missingAlias]);
                 } else {
                     $route       = $this->resolveAndPlanRoute($args, $userLat, $userLng, $fromOverride, $toOverride);
                     $toolContent = $route
@@ -219,12 +219,12 @@ PROMPT;
                 $spokenResponse  = $secondArgs['message']
                     ?? ($route
                         ? "Found a great route! Let's get you moving."
-                        : "I couldn't find a route right now — try a nearby stop or a different time.");
+                        : "I couldn't find a route right now, try a nearby stop or a different time.");
 
                 $history[] = ['role' => 'assistant', 'content' => $spokenResponse];
 
             } else {
-                // chat_or_clarify — extract the message directly
+                // chat_or_clarify, extract the message directly
                 $spokenResponse = $args['message'] ?? '';
                 $history[]      = ['role' => 'assistant', 'content' => $spokenResponse];
             }
@@ -255,7 +255,7 @@ PROMPT;
         $systemContent = $this->systemPrompt();
 
         if ($userLat !== null && $userLng !== null) {
-            $systemContent .= "\n\nUSER GPS: The user's current coordinates are ({$userLat}, {$userLng}). When they say 'here', 'my location', 'from here', etc., pass 'current location' as the `from` parameter — the backend will resolve the coords automatically.";
+            $systemContent .= "\n\nUSER GPS: The user's current coordinates are ({$userLat}, {$userLng}). When they say 'here', 'my location', 'from here', etc., pass 'current location' as the `from` parameter, the backend will resolve the coords automatically.";
         }
 
         return array_merge(
@@ -299,7 +299,7 @@ PROMPT;
         $fromText = strtolower(trim($args['from'] ?? ''));
         $toText   = strtolower(trim($args['to']   ?? ''));
 
-        // Hard block — alias keywords without an override must never reach the geocoding service
+        // Hard block, alias keywords without an override must never reach the geocoding service
         if (($this->isAliasKeyword($fromText) && !$fromCoordsOverride) ||
             ($this->isAliasKeyword($toText)   && !$toCoordsOverride)) {
             Log::warning('Alias keyword reached geocoding without a coords override', [

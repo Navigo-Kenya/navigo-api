@@ -26,9 +26,9 @@ return [
     |--------------------------------------------------------------------------
     | Road snapper driver
     |--------------------------------------------------------------------------
-    | 'none'    — use raw OTP geometry (recommended; GTFS shapes are road-aligned)
-    | 'mapbox'  — Mapbox Map Matching API  (requires MAPBOX_API_KEY)
-    | 'google'  — Google Roads API         (requires GOOGLE_ROADS_API_KEY)
+    | 'none'   , use raw OTP geometry (recommended; GTFS shapes are road-aligned)
+    | 'mapbox' , Mapbox Map Matching API  (requires MAPBOX_API_KEY)
+    | 'google' , Google Roads API         (requires GOOGLE_ROADS_API_KEY)
     */
     'road_snapper' => env('ROAD_SNAPPER_DRIVER', 'none'),
 
@@ -36,9 +36,9 @@ return [
     |--------------------------------------------------------------------------
     | Geocoding driver (used by /api/v1/places/search)
     |--------------------------------------------------------------------------
-    | 'mapbox'    — Mapbox Geocoding API   (requires MAPBOX_API_KEY)
-    | 'google'    — Google Places API      (requires GOOGLE_PLACES_API_KEY)
-    | 'nominatim' — OpenStreetMap Nominatim (no key required)
+    | 'mapbox'   , Mapbox Geocoding API   (requires MAPBOX_API_KEY)
+    | 'google'   , Google Places API      (requires GOOGLE_PLACES_API_KEY)
+    | 'nominatim', OpenStreetMap Nominatim (no key required)
     */
     'geocoder' => env('GEOCODER_DRIVER', 'mapbox'),
 

@@ -16,7 +16,7 @@ class ConsoleRealTimeController extends Controller
 
     public function livePositions(Request $request): JsonResponse
     {
-        // Latest position per vehicle — subquery to pick MAX(recorded_at) per vehicle
+        // Latest position per vehicle, subquery to pick MAX(recorded_at) per vehicle
         $subquery = VehiclePosition::select('vehicle_id', DB::raw('MAX(recorded_at) as latest'))
             ->groupBy('vehicle_id');
 
@@ -89,7 +89,7 @@ class ConsoleRealTimeController extends Controller
             ? round(($summary->on_time_trips / $summary->total_trips) * 100, 1)
             : 0;
 
-        // Worst routes — add sparkline (last 7 days, daily on-time %)
+        // Worst routes, add sparkline (last 7 days, daily on-time %)
         $worst = OnTimePerformance::where('date', '>=', now()->subDays($days))
             ->groupBy('route_id')
             ->selectRaw('route_id, SUM(total_trips) as total_trips, SUM(on_time_trips) as on_time_trips, AVG(avg_delay_s) as avg_delay_s')
@@ -191,7 +191,7 @@ class ConsoleRealTimeController extends Controller
             ->whereNotIn('trip_id', $activeTripIds)
             ->limit(50);
 
-        // Ideally join with stop_times to check schedule — simplified here
+        // Ideally join with stop_times to check schedule, simplified here
         return $ghostQuery->get()->map(function (Trip $trip) {
             return [
                 'trip_id'         => $trip->trip_id,
@@ -199,7 +199,7 @@ class ConsoleRealTimeController extends Controller
                 'route_id'        => $trip->route_id,
                 'route_short_name'=> $trip->route?->route_short_name,
                 'route_color'     => $trip->route?->route_color,
-                // first stop coords omitted without stop_times join — frontend uses route shape fallback
+                // first stop coords omitted without stop_times join, frontend uses route shape fallback
                 'first_stop_lat'  => null,
                 'first_stop_lng'  => null,
             ];

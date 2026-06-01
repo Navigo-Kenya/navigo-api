@@ -203,15 +203,15 @@ Route::prefix('v1/console')
         Route::patch('badges/{id}',   [BadgeController::class, 'update'])->middleware('role:admin,superadmin');
         Route::delete('badges/{id}',  [BadgeController::class, 'destroy'])->middleware('role:admin,superadmin');
 
-        // ── Feature 29 — Multi-Modal Layers ───────────────────────────────────
+        // ── Feature 29, Multi-Modal Layers ───────────────────────────────────
         Route::get('network/modal-layers',              [ConsoleNetworkController::class, 'modalLayers']);
         Route::post('network/modal-layers/refresh-osm', [ConsoleNetworkController::class, 'refreshOsmLayer'])->middleware('role:admin,superadmin');
 
-        // ── Feature 31 — Multi-Agency ─────────────────────────────────────────
+        // ── Feature 31, Multi-Agency ─────────────────────────────────────────
         Route::get('network/agencies',               [ConsoleNetworkController::class, 'agencies']);
         Route::get('network/cross-agency-transfers', [ConsoleNetworkController::class, 'crossAgencyTransfers']);
 
-        // ── Feature 30 — Fare Zones ───────────────────────────────────────────
+        // ── Feature 30, Fare Zones ───────────────────────────────────────────
         Route::get('fares/zones',          [ConsoleFareController::class, 'zones']);
         Route::post('fares/zones',         [ConsoleFareController::class, 'storeZone'])->middleware('role:admin,superadmin');
         Route::patch('fares/zones/{id}',   [ConsoleFareController::class, 'updateZone'])->middleware('role:admin,superadmin');
@@ -233,7 +233,7 @@ Route::prefix('v1/console')
         Route::delete('fares/modifiers/{id}',              [ConsoleFareController::class, 'deleteFareModifier'])->middleware('role:admin,superadmin');
         Route::post('fares/modifiers/{id}/toggle',         [ConsoleFareController::class, 'toggleModifier'])->middleware('role:admin,superadmin');
 
-        // ── Feature 32 — Interop Registry + Levels + Pathways ─────────────────
+        // ── Feature 32, Interop Registry + Levels + Pathways ─────────────────
         Route::get('network/interop',         [ConsoleInteropController::class, 'index']);
         Route::post('network/interop',        [ConsoleInteropController::class, 'store'])->middleware('role:admin,superadmin');
         Route::patch('network/interop/{id}',  [ConsoleInteropController::class, 'update'])->middleware('role:admin,superadmin');
@@ -248,7 +248,7 @@ Route::prefix('v1/console')
         Route::patch('network/pathways/{id}',    [ConsoleInteropController::class, 'updatePathway'])->middleware('role:admin,superadmin');
         Route::delete('network/pathways/{id}',   [ConsoleInteropController::class, 'destroyPathway'])->middleware('role:admin,superadmin');
 
-        // ── Fleet — Vehicles & Drivers ─────────────────────────────────────────
+        // ── Fleet, Vehicles & Drivers ─────────────────────────────────────────
         Route::get('vehicles',         [ConsoleVehicleController::class, 'index']);
         Route::post('vehicles',        [ConsoleVehicleController::class, 'store'])->middleware('role:admin,superadmin');
         Route::patch('vehicles/{id}',  [ConsoleVehicleController::class, 'update'])->middleware('role:admin,superadmin');

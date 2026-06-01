@@ -124,7 +124,7 @@ class TransitEngineService
 
     /**
      * Decodes a Google Polyline5-encoded string into [[lat, lng], ...] pairs.
-     * OTP emits this format in legGeometry.points — no external library required.
+     * OTP emits this format in legGeometry.points, no external library required.
      */
     private function decodePolyline(string $encoded): array
     {
@@ -350,7 +350,7 @@ class TransitEngineService
 
             if ($row && $row->geojson) {
                 $geojson = json_decode($row->geojson, true);
-                // GeoJSON coords are [lng, lat] — convert to our [lat, lng] convention
+                // GeoJSON coords are [lng, lat], convert to our [lat, lng] convention
                 return \array_map(fn ($c) => [$c[1], $c[0]], $geojson['coordinates'] ?? []);
             }
         } catch (\Exception $e) {

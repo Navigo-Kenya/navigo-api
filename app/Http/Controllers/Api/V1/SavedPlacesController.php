@@ -31,7 +31,7 @@ class SavedPlacesController extends Controller
 
         $user = $request->user();
 
-        // Pin is mutually exclusive — remove existing same-pin entry
+        // Pin is mutually exclusive, remove existing same-pin entry
         if (!empty($data['pin'])) {
             $user->savedPlaces()->where('pin', $data['pin'])->delete();
             $data['list'] = null;

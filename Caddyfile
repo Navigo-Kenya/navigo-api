@@ -1,0 +1,44 @@
+{
+    # Disable Caddy's admin API in production
+    admin off
+
+    # Email for Let's Encrypt ACME account
+    email admin@hopln.app
+}
+
+api.hopln.app {
+    # Laravel public root — used by php_fastcgi to construct SCRIPT_FILENAME
+    root * /var/www/public
+
+    # Compress responses
+    encode zstd gzip
+
+    # Security headers
+    header {
+        X-Frame-Options DENY
+        X-Content-Type-Options nosniff
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy strict-origin-when-cross-origin
+        Permissions-Policy "geolocation=(), camera=(), microphone=()"
+        -Server
+    }
+
+    # Proxy all requests to PHP-FPM in the app container
+    # php_fastcgi handles try_files internally (Laravel-compatible)
+    php_fastcgi app:9000 {
+        trusted_proxies private_ranges
+        # Increase timeout for OTP route planning requests (can take up to 30s)
+        read_timeout 45s
+        write_timeout 45s
+    }
+
+    # Structured JSON access logs
+    log {
+        output file /var/log/caddy/api.log {
+            roll_size    50mb
+            roll_keep    5
+            roll_keep_for 720h
+        }
+        format json
+    }
+}

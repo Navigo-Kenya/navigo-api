@@ -1,0 +1,134 @@
+version: "3.9"
+
+# Production stack for Hetzner CPX32.
+# All service ports are internal — only Caddy exposes 80/443.
+# OTP data is bind-mounted from /opt/hopln/otp-data on the host.
+
+services:
+
+  # ── Reverse proxy + automatic TLS ─────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: hopln_caddy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+    networks:
+      - hopln_net
+
+  # ── Laravel PHP-FPM ───────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hopln_app
+    env_file: .env
+    volumes:
+      - storage_data:/var/www/storage
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - hopln_net
+
+  # ── Laravel queue worker ──────────────────────────────────────────────────
+  queue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hopln_queue
+    command: php artisan queue:work --queue=otp,default --tries=1 --timeout=0
+    env_file: .env
+    volumes:
+      - storage_data:/var/www/storage
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - hopln_net
+
+  # ── PostgreSQL + PostGIS ──────────────────────────────────────────────────
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: hopln_postgres
+    environment:
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - hopln_net
+    # No ports exposed — only accessible within hopln_net
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: hopln_redis
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - hopln_net
+    # No ports exposed — only accessible within hopln_net
+
+  # ── OpenTripPlanner (serve) ───────────────────────────────────────────────
+  otp:
+    image: opentripplanner/opentripplanner:2.4.0
+    container_name: hopln_otp
+    environment:
+      - JAVA_OPTS=-Xmx3G -Xms512m -XX:+UseG1GC
+    volumes:
+      - otp_data:/var/opentripplanner
+    command: --load
+    restart: unless-stopped
+    networks:
+      - hopln_net
+    # No ports exposed — Laravel reaches otp:8080 internally
+
+  # ── OpenTripPlanner (graph builder, on-demand) ────────────────────────────
+  otp-builder:
+    image: opentripplanner/opentripplanner:2.4.0
+    container_name: hopln_otp_builder
+    profiles:
+      - build
+    environment:
+      - JAVA_OPTS=-Xmx4G -Xms512m -XX:+UseG1GC
+    volumes:
+      - otp_data:/var/opentripplanner
+    command: --build --save
+    networks:
+      - hopln_net
+
+volumes:
+  storage_data:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+  otp_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/hopln/otp-data
+
+networks:
+  hopln_net:
+    driver: bridge
