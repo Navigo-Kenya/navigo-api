@@ -32,6 +32,7 @@ services:
     container_name: hopln_app
     env_file: .env
     volumes:
+      - ./:/var/www
       - storage_data:/var/www/storage
     depends_on:
       postgres:
@@ -51,6 +52,7 @@ services:
     command: php artisan queue:work --queue=otp,default --tries=1 --timeout=0
     env_file: .env
     volumes:
+      - ./:/var/www
       - storage_data:/var/www/storage
     depends_on:
       postgres:
