@@ -17,6 +17,8 @@
 /public/build
 /public/hot
 /public/storage
+!/storage/gtfs/
+!/storage/gtfs/**
 /storage/*.key
 /storage/pail
 /vendor
