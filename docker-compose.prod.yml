@@ -33,7 +33,7 @@ services:
     env_file: .env
     volumes:
       - ./:/var/www
-      - storage_data:/var/www/storage
+      # - storage_data:/var/www/storage
     depends_on:
       postgres:
         condition: service_healthy
