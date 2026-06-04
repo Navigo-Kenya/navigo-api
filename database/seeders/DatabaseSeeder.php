@@ -16,6 +16,12 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
+            // RBAC — must run before AdminSeeder so the superadmin role exists
+            PermissionSeeder::class,
+            RoleSeeder::class,
+            AdminSeeder::class,
+            BadgeSeeder::class,
+
             AgencySeeder::class,
             ServiceCalendarSeeder::class,
             // GtfsSeeder::class,
@@ -27,6 +33,7 @@ class DatabaseSeeder extends Seeder
         User::factory()->create([
             'name' => 'Test User',
             'email' => 'test@example.com',
+            'phone_number' => '+254745908026'
         ]);
     }
 }

@@ -17,8 +17,12 @@ class GtfsExcelSeeder extends Seeder
 
         $this->command->info('🚀 Starting High-Performance XLSX GTFS Import...');
 
-        // Clear existing data (FK order: frequencies before trips, stops before stop_times)
+        // Clear GTFS tables (FK-safe order; CASCADE handles any remaining dependents)
         DB::statement('TRUNCATE TABLE trip_frequencies, stop_times, stops, trips, shapes, routes RESTART IDENTITY CASCADE');
+
+        // Seed FK-referenced lookup tables from actual GTFS data BEFORE inserting dependents
+        // $this->seedAgencies();           // must run before seedRoutes (routes.agency_id FK)
+        $this->seedServiceCalendars();   // must run before seedTrips  (trips.service_id FK)
 
         $this->seedRoutes();
         $this->seedShapes();
@@ -72,6 +76,99 @@ class GtfsExcelSeeder extends Seeder
         $reader->close();
     }
 
+    private function seedAgencies(): void
+    {
+        $this->command->info('🏢 Upserting agencies from routes data...');
+
+        $seen = [];
+        foreach ($this->readExcel('routes.xlsx') as $row) {
+            $id = isset($row['agency_id']) && $row['agency_id'] !== '' ? (string) $row['agency_id'] : null;
+            if ($id !== null && !isset($seen[$id])) {
+                $seen[$id] = true;
+            }
+        }
+
+        if (empty($seen)) {
+            return;
+        }
+
+        $now  = now()->toDateTimeString();
+        $rows = [];
+        foreach (array_keys($seen) as $id) {
+            $rows[] = [
+                'agency_id'       => $id,
+                'agency_name'     => $id,          // placeholder — update via Agencies console
+                'agency_url'      => 'https://hopln.app',
+                'agency_timezone' => 'Africa/Nairobi',
+                'agency_lang'     => 'en',
+                'agency_phone'    => null,
+                'agency_email'    => null,
+                'created_at'      => $now,
+                'updated_at'      => $now,
+            ];
+        }
+
+        // Only insert new agencies — preserve names already set by AgencySeeder / admins
+        DB::table('agencies')->upsert(
+            $rows,
+            ['agency_id'],
+            ['updated_at']   // do NOT overwrite agency_name/url if the row already exists
+        );
+
+        $this->command->info('   -> ' . count($rows) . ' agencies upserted.');
+    }
+
+    private function seedServiceCalendars(): void
+    {
+        $this->command->info('📅 Upserting service calendars from calendar.xlsx...');
+
+        $path = storage_path('app/gtfs/calendar.xlsx');
+        if (!file_exists($path)) {
+            $this->command->warn('   -> calendar.xlsx not found, skipping.');
+            return;
+        }
+
+        $rows = [];
+        $now  = now()->toDateTimeString();
+
+        foreach ($this->readExcel('calendar.xlsx') as $row) {
+            $serviceId = isset($row['service_id']) && $row['service_id'] !== '' ? strtolower((string) $row['service_id']) : null;
+            if ($serviceId === null) {
+                continue;
+            }
+
+            $toBool = static fn ($v): bool => (int) $v === 1;
+
+            $rows[] = [
+                'service_id' => $serviceId,
+                'name'       => $serviceId,
+                'monday'     => $toBool($row['monday']    ?? 0),
+                'tuesday'    => $toBool($row['tuesday']   ?? 0),
+                'wednesday'  => $toBool($row['wednesday'] ?? 0),
+                'thursday'   => $toBool($row['thursday']  ?? 0),
+                'friday'     => $toBool($row['friday']    ?? 0),
+                'saturday'   => $toBool($row['saturday']  ?? 0),
+                'sunday'     => $toBool($row['sunday']    ?? 0),
+                'start_date' => $row['start_date'] ?? '2026-01-01',
+                'end_date'   => $row['end_date']   ?? '2027-12-31',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        if (empty($rows)) {
+            return;
+        }
+
+        DB::table('service_calendars')->upsert(
+            $rows,
+            ['service_id'],
+            ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'start_date', 'end_date', 'updated_at']
+        );
+
+        $this->command->info('   -> ' . count($rows) . ' service calendars upserted.');
+    }
+
     private function seedRoutes(): void
     {
         $this->command->info('🚌 Seeding Routes...');
@@ -82,7 +179,7 @@ class GtfsExcelSeeder extends Seeder
 
             $chunk[] = [
                 'route_id'         => (string) $row['route_id'],
-                'agency_id'        => $row['agency_id'] ?? 'AGENCY',
+                'agency_id'        => $row['agency_id'] ?? 'hopln',
                 'route_short_name' => $shortName,
                 'route_long_name'  => $row['route_long_name'] ?? '',
                 'route_type'       => (int) ($row['route_type'] ?? 3),
@@ -154,7 +251,7 @@ class GtfsExcelSeeder extends Seeder
             $chunk[] = [
                 'trip_id'         => (string) $row['trip_id'],
                 'route_id'        => (string) $row['route_id'],
-                'service_id'      => $row['service_id'] ?? 'daily',
+                'service_id'      => strtolower($row['service_id'] ?? 'daily'),
                 'trip_headsign'   => $row['trip_headsign'] ?? '',
                 'direction_id'    => isset($row['direction_id']) && $row['direction_id'] !== '' ? (int) $row['direction_id'] : null,
                 'shape_id'        => (string) $row['shape_id'],

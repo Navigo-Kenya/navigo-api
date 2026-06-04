@@ -34,8 +34,10 @@ services:
     volumes:
       - storage_data:/var/www/storage
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - hopln_net
@@ -51,8 +53,10 @@ services:
     volumes:
       - storage_data:/var/www/storage
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - hopln_net
@@ -67,6 +71,12 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${DB_USERNAME} -d $${DB_DATABASE}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     restart: unless-stopped
     networks:
       - hopln_net
@@ -83,6 +93,12 @@ services:
       --appendonly yes
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
     networks:
       - hopln_net

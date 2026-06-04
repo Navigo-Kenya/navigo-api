@@ -56,8 +56,10 @@ class ConsoleIncidentController extends Controller
             'reported_by'    => 'nullable|string|max:255',
         ]);
 
-        $data['status']     = 'open';
-        $data['created_by'] = $request->user()?->id ?? 'system';
+        $data['status']       = 'open';
+        $data['created_by']   = $request->user()?->id ?? 'system';
+        $slaMins = Incident::SLA_MINUTES[$data['severity']] ?? 1440;
+        $data['sla_deadline'] = now()->addMinutes($slaMins);
 
         $incident = Incident::create($data);
 
@@ -105,6 +107,19 @@ class ConsoleIncidentController extends Controller
         ]);
 
         return response()->json($incident->load('vehicle:id,plate'));
+    }
+
+    public function assign(Request $request, int $id): JsonResponse
+    {
+        $incident = Incident::findOrFail($id);
+
+        $data = $request->validate([
+            'assigned_to' => 'nullable|integer|exists:users,id',
+        ]);
+
+        $incident->update(['assigned_to' => $data['assigned_to']]);
+
+        return response()->json($incident->load(['vehicle:id,plate', 'assignedTo:id,name']));
     }
 
     public function stats(): JsonResponse

@@ -12,7 +12,7 @@ class Contribution extends Model
     protected $fillable = [
         'user_id', 'stop_id', 'type', 'title', 'description',
         'data', 'status', 'points_awarded', 'expires_at', 'reviewed_at',
-        'reviewed_by', 'decline_reason',
+        'reviewed_by', 'decline_reason', 'assigned_to',
     ];
 
     protected function casts(): array

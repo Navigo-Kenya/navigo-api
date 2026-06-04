@@ -64,4 +64,47 @@ class BroadcastNotificationController extends Controller
             'sent_to'      => $count,
         ]);
     }
+
+    public function broadcastToFleet(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'agency_id' => 'required|string|exists:agencies,agency_id',
+            'title'     => 'required|string|max:100',
+            'body'      => 'required|string|max:500',
+            'severity'  => 'required|in:info,warning,emergency',
+        ]);
+
+        $this->assertAgencyAllowed($request, $data['agency_id']);
+
+        // Target console users who are operators of this agency
+        $userIds = DB::table('model_has_roles')
+            ->join('agency_user', 'model_has_roles.model_id', '=', 'agency_user.user_id')
+            ->where('agency_user.agency_id', $data['agency_id'])
+            ->pluck('model_has_roles.model_id')
+            ->unique();
+
+        $count = $userIds->count();
+
+        $broadcastId = DB::table('broadcast_notifications')->insertGetId([
+            'title'      => $data['title'],
+            'body'       => $data['body'],
+            'type'       => 'alert',
+            'audience'   => "fleet:{$data['agency_id']}",
+            'sent_to'    => $count,
+            'created_by' => $request->user()->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        foreach ($userIds as $userId) {
+            SendPushNotificationJob::dispatch($userId, $data['severity'], $data['title'], $data['body'])
+                ->onQueue('notifications');
+        }
+
+        return response()->json([
+            'message'      => "Fleet broadcast queued for {$count} users.",
+            'broadcast_id' => $broadcastId,
+            'sent_to'      => $count,
+        ]);
+    }
 }

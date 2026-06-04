@@ -122,6 +122,56 @@ class AnalyticsController extends Controller
         return response()->json(['data' => $data]);
     }
 
+    public function tripVariance(Request $request): JsonResponse
+    {
+        $routeId = $request->query('route_id');
+        $days    = max(1, min(90, (int) ($request->query('days', 30))));
+        $since   = now()->subDays($days)->toDateString();
+
+        $q = DB::table('on_time_performance')
+            ->where('date', '>=', $since)
+            ->selectRaw(
+                'route_id,
+                 COUNT(*) as sample_days,
+                 SUM(total_trips) as total_trips,
+                 SUM(on_time_trips) as on_time_trips,
+                 ROUND(AVG(avg_delay_s)::numeric, 1) as avg_delay_s,
+                 ROUND(
+                   100.0 * SUM(on_time_trips) / NULLIF(SUM(total_trips), 0), 1
+                 ) as on_time_pct'
+            )
+            ->groupBy('route_id');
+
+        if ($routeId) {
+            $q->where('route_id', $routeId);
+        } elseif ($scope = $this->agencyScope($request)) {
+            $q->whereIn('route_id', function ($sub) use ($scope) {
+                $sub->select('route_id')->from('routes')->whereIn('agency_id', $scope);
+            });
+        }
+
+        $rows = $q->orderBy('avg_delay_s', 'desc')->get();
+
+        // Attach route short names
+        $routeIds  = $rows->pluck('route_id')->unique()->toArray();
+        $routeNames = DB::table('routes')
+            ->whereIn('route_id', $routeIds)
+            ->pluck('route_short_name', 'route_id');
+
+        $rows = $rows->map(fn ($r) => [
+            'route_id'         => $r->route_id,
+            'route_short_name' => $routeNames[$r->route_id] ?? $r->route_id,
+            'sample_days'      => (int) $r->sample_days,
+            'total_trips'      => (int) $r->total_trips,
+            'on_time_trips'    => (int) $r->on_time_trips,
+            'on_time_pct'      => (float) ($r->on_time_pct ?? 0),
+            'avg_delay_s'      => (float) ($r->avg_delay_s ?? 0),
+            'avg_delay_min'    => round((float) ($r->avg_delay_s ?? 0) / 60, 1),
+        ]);
+
+        return response()->json(['data' => $rows, 'days' => $days]);
+    }
+
     private function journeyCount(\Carbon\Carbon $since): int
     {
         try {

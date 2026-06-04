@@ -11,11 +11,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable, HasRoles;
 
     protected $fillable = [
         'name',
@@ -64,7 +65,28 @@ class User extends Authenticatable
 
     public function hasConsoleAccess(): bool
     {
-        return in_array($this->role, ['moderator', 'admin', 'superadmin']);
+        // Spatie roles take precedence; fall back to legacy enum during transition
+        if ($this->relationLoaded('roles') || $this->roles()->exists()) {
+            return $this->hasAnyRole([
+                'superadmin', 'hopln_admin', 'hopln_staff',
+                'operator_owner', 'operator_data_manager', 'operator_fleet_manager',
+                'operator_finance_officer', 'operator_ops_coordinator', 'moderator', 'custom',
+            ]);
+        }
+        return \in_array($this->role, ['moderator', 'admin', 'superadmin']);
+    }
+
+    public function getEffectivePermissions(): array
+    {
+        if ($this->hasRole('superadmin')) {
+            return ['*'];
+        }
+        return $this->getAllPermissions()->pluck('name')->toArray();
+    }
+
+    public function agencyScopes(): HasMany
+    {
+        return $this->hasMany(UserAgencyScope::class);
     }
 
     public function isPhoneVerified(): bool

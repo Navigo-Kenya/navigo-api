@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Console;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\OtpSyncJob;
 use App\Models\OtpLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -53,7 +52,7 @@ class OtpController extends Controller
             return response()->json(['message' => 'Sync already in progress.'], 409);
         }
 
-        OtpSyncJob::dispatch()->onQueue('otp');
+        $this->scheduleOtpSync(delaySecs: 0, force: true);
 
         return response()->json(['message' => 'OTP sync queued.']);
     }

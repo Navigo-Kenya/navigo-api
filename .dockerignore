@@ -1,0 +1,43 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# CI / deployment config (not needed inside the image)
+.github
+docker-compose*.yml
+Dockerfile
+
+# Secrets — never bake env files into the image
+.env
+.env.*
+
+# Dependencies — vendor is copied from the composer stage; node_modules not used in production
+vendor
+node_modules
+
+# Runtime-generated storage (managed via Docker volume at /var/www/storage)
+storage/logs
+storage/framework/cache
+storage/framework/sessions
+storage/framework/views
+storage/app/gtfs
+storage/app/public
+
+# Test infrastructure
+tests
+phpunit.xml
+.phpunit.result.cache
+
+# Documentation
+*.md
+
+# IDE / editor
+.idea
+.vscode
+*.swp
+*.swo
+
+# Misc
+.editorconfig
+.npmrc

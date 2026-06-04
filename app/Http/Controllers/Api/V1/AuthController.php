@@ -70,12 +70,12 @@ class AuthController extends Controller
 
         $token = $user->createToken('mobile', ['*'], now()->addDays(30))->plainTextToken;
 
-        return response()->json(['token' => $token, 'user' => $user]);
+        return response()->json(['token' => $token, 'user' => $this->withConsoleFields($user)]);
     }
 
     public function me(Request $request): JsonResponse
     {
-        return response()->json($request->user());
+        return response()->json($this->withConsoleFields($request->user()));
     }
 
     public function updateProfile(Request $request): JsonResponse
@@ -111,6 +111,15 @@ class AuthController extends Controller
         $user->update(['avatar' => $url]);
 
         return response()->json($user->fresh());
+    }
+
+    private function withConsoleFields(User $user): array
+    {
+        $data                  = $user->toArray();
+        $data['permissions']   = $user->getEffectivePermissions();
+        $data['agency_scopes'] = $user->agencyScopes()->pluck('agency_id')->toArray();
+        $data['console_role']  = $user->roles->first()?->name ?? $user->role;
+        return $data;
     }
 
     public function logout(Request $request): JsonResponse

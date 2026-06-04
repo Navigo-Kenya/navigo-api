@@ -16,7 +16,8 @@ class ConsoleRealTimeController extends Controller
 
     public function livePositions(Request $request): JsonResponse
     {
-        // Latest position per vehicle, subquery to pick MAX(recorded_at) per vehicle
+        $scope = $this->agencyScope($request);
+
         $subquery = VehiclePosition::select('vehicle_id', DB::raw('MAX(recorded_at) as latest'))
             ->groupBy('vehicle_id');
 
@@ -26,9 +27,17 @@ class ConsoleRealTimeController extends Controller
             })
             ->with(['vehicle:id,plate,agency_id,route_id,status'])
             ->when($request->filled('route_id'), fn ($q) => $q->where('vehicle_positions.trip_id', 'like', $request->route_id.'%'))
+            ->when($scope !== null, fn ($q) =>
+                $q->join('vehicles', 'vehicles.id', '=', 'vehicle_positions.vehicle_id')
+                  ->whereIn('vehicles.agency_id', $scope)
+                  ->select('vehicle_positions.*')
+            )
             ->get();
 
-        $ghost = $this->resolveGhostTrips($positions->pluck('trip_id')->filter()->values()->toArray());
+        $ghost = $this->resolveGhostTrips(
+            $positions->pluck('trip_id')->filter()->values()->toArray(),
+            $scope,
+        );
 
         return response()->json([
             'positions'            => $positions,
@@ -37,24 +46,38 @@ class ConsoleRealTimeController extends Controller
         ]);
     }
 
-    public function ghostTrips(): JsonResponse
+    public function ghostTrips(Request $request): JsonResponse
     {
+        $scope = $this->agencyScope($request);
+
         $recentTripIds = VehiclePosition::where('recorded_at', '>=', now()->subMinutes(10))
+            ->when($scope !== null, fn ($q) =>
+                $q->join('vehicles', 'vehicles.id', '=', 'vehicle_positions.vehicle_id')
+                  ->whereIn('vehicles.agency_id', $scope)
+                  ->select('vehicle_positions.trip_id')
+            )
             ->distinct()
             ->pluck('trip_id')
             ->filter()
             ->values();
 
-        $ghost = $this->resolveGhostTrips($recentTripIds->toArray());
+        $ghost = $this->resolveGhostTrips($recentTripIds->toArray(), $scope);
         return response()->json($ghost);
     }
 
-    public function liveStats(): JsonResponse
+    public function liveStats(Request $request): JsonResponse
     {
-        $activeCount = VehiclePosition::select('vehicle_id')
-            ->where('recorded_at', '>=', now()->subMinutes(10))
+        $scope = $this->agencyScope($request);
+
+        $activeCount = VehiclePosition::select('vehicle_position.vehicle_id')
+            ->from('vehicle_positions as vehicle_position')
+            ->where('vehicle_position.recorded_at', '>=', now()->subMinutes(10))
+            ->when($scope !== null, fn ($q) =>
+                $q->join('vehicles', 'vehicles.id', '=', 'vehicle_position.vehicle_id')
+                  ->whereIn('vehicles.agency_id', $scope)
+            )
             ->distinct()
-            ->count('vehicle_id');
+            ->count('vehicle_position.vehicle_id');
 
         $today = OnTimePerformance::where('date', today())
             ->selectRaw('AVG(avg_delay_s) as avg_delay, AVG(CASE WHEN total_trips > 0 THEN on_time_trips::float / total_trips ELSE 0 END) as on_time_pct')
@@ -89,7 +112,6 @@ class ConsoleRealTimeController extends Controller
             ? round(($summary->on_time_trips / $summary->total_trips) * 100, 1)
             : 0;
 
-        // Worst routes, add sparkline (last 7 days, daily on-time %)
         $worst = OnTimePerformance::where('date', '>=', now()->subDays($days))
             ->groupBy('route_id')
             ->selectRaw('route_id, SUM(total_trips) as total_trips, SUM(on_time_trips) as on_time_trips, AVG(avg_delay_s) as avg_delay_s')
@@ -105,10 +127,10 @@ class ConsoleRealTimeController extends Controller
                     ->toArray();
 
                 return [
-                    'route_id'       => $row->route_id,
-                    'avg_delay_s'    => round($row->avg_delay_s),
-                    'on_time_pct'    => $row->total_trips > 0 ? round(($row->on_time_trips / $row->total_trips) * 100, 1) : 0,
-                    'sparkline'      => $sparkline,
+                    'route_id'    => $row->route_id,
+                    'avg_delay_s' => round($row->avg_delay_s),
+                    'on_time_pct' => $row->total_trips > 0 ? round(($row->on_time_trips / $row->total_trips) * 100, 1) : 0,
+                    'sparkline'   => $sparkline,
                 ];
             });
 
@@ -122,7 +144,6 @@ class ConsoleRealTimeController extends Controller
 
     public function delayHeatmap(): JsonResponse
     {
-        // 7×24 grid using on_time_performance + trip_updates for current 90-day window
         $cells = DB::table('trip_updates')
             ->where('recorded_at', '>=', now()->subDays(90))
             ->selectRaw("
@@ -161,6 +182,11 @@ class ConsoleRealTimeController extends Controller
             'date'       => 'required|date',
         ]);
 
+        $this->assertAgencyAllowed(
+            $request,
+            \App\Models\Vehicle::find($request->vehicle_id)?->agency_id,
+        );
+
         $positions = VehiclePosition::where('vehicle_id', $request->vehicle_id)
             ->whereDate('recorded_at', $request->date)
             ->orderBy('recorded_at')
@@ -169,8 +195,13 @@ class ConsoleRealTimeController extends Controller
         return response()->json($positions);
     }
 
-    public function availableDates(int $vehicleId): JsonResponse
+    public function availableDates(Request $request, int $vehicleId): JsonResponse
     {
+        $this->assertAgencyAllowed(
+            $request,
+            \App\Models\Vehicle::find($vehicleId)?->agency_id,
+        );
+
         $dates = VehiclePosition::where('vehicle_id', $vehicleId)
             ->selectRaw("DATE(recorded_at) as date")
             ->groupByRaw("DATE(recorded_at)")
@@ -183,25 +214,24 @@ class ConsoleRealTimeController extends Controller
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private function resolveGhostTrips(array $activeTripIds): array
+    private function resolveGhostTrips(array $activeTripIds, ?array $scope = null): array
     {
-        // Find trips that are "active now" per schedule but have no recent position
-        $now = now();
         $ghostQuery = Trip::with(['route:route_id,route_short_name,route_color'])
             ->whereNotIn('trip_id', $activeTripIds)
+            ->when($scope !== null, fn ($q) =>
+                $q->whereHas('route', fn ($r) => $r->whereIn('agency_id', $scope))
+            )
             ->limit(50);
 
-        // Ideally join with stop_times to check schedule, simplified here
         return $ghostQuery->get()->map(function (Trip $trip) {
             return [
-                'trip_id'         => $trip->trip_id,
-                'headsign'        => $trip->trip_headsign,
-                'route_id'        => $trip->route_id,
-                'route_short_name'=> $trip->route?->route_short_name,
-                'route_color'     => $trip->route?->route_color,
-                // first stop coords omitted without stop_times join, frontend uses route shape fallback
-                'first_stop_lat'  => null,
-                'first_stop_lng'  => null,
+                'trip_id'          => $trip->trip_id,
+                'headsign'         => $trip->trip_headsign,
+                'route_id'         => $trip->route_id,
+                'route_short_name' => $trip->route?->route_short_name,
+                'route_color'      => $trip->route?->route_color,
+                'first_stop_lat'   => null,
+                'first_stop_lng'   => null,
             ];
         })->toArray();
     }

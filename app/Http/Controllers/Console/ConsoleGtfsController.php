@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Console;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\OtpSyncJob;
 use App\Models\OtpLog;
 use App\Services\Export\ExporterFactory;
 use App\Services\GtfsOfficialValidatorService;
@@ -43,7 +42,7 @@ class ConsoleGtfsController extends Controller
     public function export(): JsonResponse
     {
         Cache::put('otp:sync_status', 'running', now()->addMinutes(15));
-        OtpSyncJob::dispatch()->onQueue('otp');
+        $this->scheduleOtpSync(delaySecs: 0, force: true);
 
         return response()->json(['message' => 'GTFS export and OTP sync queued.']);
     }

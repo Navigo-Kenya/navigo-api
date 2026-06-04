@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AiTransitController;
+use App\Http\Controllers\Api\V1\AlertsController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CoverageController;
 use App\Http\Controllers\Api\V1\DriverPositionController;
@@ -92,6 +93,12 @@ Route::prefix('v1')->group(function () {
         Route::post('/contributions/{id}/vote', [ContributionController::class, 'vote']);
         Route::post('driver/position', [DriverPositionController::class, 'store']);
     });
+
+    // ── Community alerts (JSON) ────────────────────────────────────
+    Route::get('/alerts', [AlertsController::class, 'index']);
+
+    // ── OTP warm-up ────────────────────────────────────────────────
+    Route::get('/otp/warmup', [RouteController::class, 'warmup']);
 
     // ── Public GTFS-RT feeds ───────────────────────────────────────
     Route::get('gtfs-rt/alerts', [ConsoleAlertsController::class, 'gtfsRtFeed']);

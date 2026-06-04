@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Console;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\OtpSyncJob;
 use App\Models\Stop;
 use App\Models\StopTime;
+use App\Models\AgencyStopClaim;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +25,17 @@ class ConsoleStopController extends Controller
                 $q->where('name', 'ilike', "%{$search}%")
                   ->orWhere('id', 'ilike', "%{$search}%");
             });
+        }
+
+        if ($request->filled('agency_id')) {
+            $agencyId = $request->agency_id;
+            $q->whereExists(fn ($sub) =>
+                $sub->from('stop_times')
+                    ->join('trips', 'trips.trip_id', '=', 'stop_times.trip_id')
+                    ->join('routes', 'routes.route_id', '=', 'trips.route_id')
+                    ->whereColumn('stop_times.stop_id', 'stops.id')
+                    ->where('routes.agency_id', $agencyId)
+            );
         }
 
         // Bounding box filter: ?bbox=lat_min,lng_min,lat_max,lng_max
@@ -84,7 +95,7 @@ class ConsoleStopController extends Controller
         $stop = Stop::selectRaw("*, ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng")
             ->findOrFail($data['id']);
 
-        OtpSyncJob::dispatch()->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json($stop, 201);
     }
@@ -126,7 +137,7 @@ class ConsoleStopController extends Controller
             $stop->update($updates);
         }
 
-        OtpSyncJob::dispatch()->delay(now()->addSeconds(10))->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json(
             Stop::selectRaw("*, ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng")
@@ -138,7 +149,7 @@ class ConsoleStopController extends Controller
     {
         $stop = Stop::findOrFail($id);
         $stop->delete();
-        OtpSyncJob::dispatch()->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json(['message' => 'Stop deleted.']);
     }
@@ -163,5 +174,51 @@ class ConsoleStopController extends Controller
         ]);
 
         return response()->json($stopTime, 201);
+    }
+
+    public function claim(Request $request, string $id): JsonResponse
+    {
+        $data = $request->validate([
+            'agency_id' => 'required|string|exists:agencies,agency_id',
+        ]);
+
+        $this->assertAgencyAllowed($request, $data['agency_id']);
+        Stop::findOrFail($id);
+
+        $claim = AgencyStopClaim::firstOrCreate(
+            ['stop_id' => $id, 'agency_id' => $data['agency_id']],
+            ['claimed_by' => $request->user()?->id]
+        );
+
+        return response()->json($claim, 201);
+    }
+
+    public function unclaim(Request $request, string $id): JsonResponse
+    {
+        $data = $request->validate([
+            'agency_id' => 'required|string|exists:agencies,agency_id',
+        ]);
+
+        $this->assertAgencyAllowed($request, $data['agency_id']);
+
+        AgencyStopClaim::where('stop_id', $id)
+            ->where('agency_id', $data['agency_id'])
+            ->delete();
+
+        return response()->json(null, 204);
+    }
+
+    public function claimed(Request $request): JsonResponse
+    {
+        $scope = $this->agencyScope($request);
+
+        $q = AgencyStopClaim::with('stop:id,name,location_t')
+            ->when($scope !== null, fn ($q) => $q->whereIn('agency_id', $scope));
+
+        if ($request->filled('agency_id')) {
+            $q->where('agency_id', $request->agency_id);
+        }
+
+        return response()->json($q->get());
     }
 }

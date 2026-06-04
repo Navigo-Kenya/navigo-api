@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Console;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\OtpSyncJob;
 use App\Models\Stop;
 use App\Models\StopTime;
 use App\Models\Trip;
@@ -27,6 +26,10 @@ class ConsoleTripController extends Controller
 
         if ($request->filled('route_id')) {
             $q->where('route_id', $request->input('route_id'));
+        }
+
+        if ($request->filled('agency_id')) {
+            $q->whereHas('route', fn ($r) => $r->where('agency_id', $request->agency_id));
         }
 
         if ($request->filled('service_id')) {
@@ -72,7 +75,7 @@ class ConsoleTripController extends Controller
         ]);
 
         $trip = Trip::create($data);
-        OtpSyncJob::dispatch()->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json($trip, 201);
     }
@@ -92,7 +95,7 @@ class ConsoleTripController extends Controller
         ]);
 
         $trip->update($data);
-        OtpSyncJob::dispatch()->delay(now()->addSeconds(10))->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json($trip);
     }
@@ -102,7 +105,7 @@ class ConsoleTripController extends Controller
         $trip = Trip::findOrFail($id);
         StopTime::where('trip_id', $trip->trip_id)->delete();
         $trip->delete();
-        OtpSyncJob::dispatch()->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json(['message' => 'Trip deleted.']);
     }
@@ -129,7 +132,7 @@ class ConsoleTripController extends Controller
         );
 
         $trip->update(['shape_id' => $shapeId]);
-        OtpSyncJob::dispatch()->delay(now()->addSeconds(10))->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json(['shape_id' => $shapeId]);
     }
@@ -163,9 +166,58 @@ class ConsoleTripController extends Controller
             }
         });
 
-        OtpSyncJob::dispatch()->delay(now()->addSeconds(10))->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json(['message' => 'Stop times saved.']);
+    }
+
+    public function submitForReview(string $id): JsonResponse
+    {
+        $trip = Trip::findOrFail($id);
+        $trip->update([
+            'draft_status'  => 'pending_review',
+            'submitted_by'  => auth()->id(),
+        ]);
+        return response()->json($trip);
+    }
+
+    public function approveDraft(Request $request, string $id): JsonResponse
+    {
+        $trip = Trip::findOrFail($id);
+        $trip->update([
+            'draft_status' => 'published',
+            'reviewed_by'  => auth()->id(),
+            'reviewed_at'  => now(),
+            'review_notes' => $request->input('notes'),
+        ]);
+        $this->scheduleOtpSync();
+        return response()->json($trip);
+    }
+
+    public function rejectDraft(Request $request, string $id): JsonResponse
+    {
+        $data = $request->validate(['notes' => 'required|string|max:1000']);
+        $trip = Trip::findOrFail($id);
+        $trip->update([
+            'draft_status' => 'rejected',
+            'reviewed_by'  => auth()->id(),
+            'reviewed_at'  => now(),
+            'review_notes' => $data['notes'],
+        ]);
+        return response()->json($trip);
+    }
+
+    public function pendingReview(Request $request): JsonResponse
+    {
+        $q = Trip::with('route:route_id,route_short_name,route_long_name')
+            ->withCount('stopTimes')
+            ->where('draft_status', 'pending_review');
+
+        if ($request->filled('agency_id')) {
+            $q->whereHas('route', fn ($r) => $r->where('agency_id', $request->agency_id));
+        }
+
+        return response()->json($q->latest('updated_at')->paginate(30));
     }
 
     public function stopsNearLine(Request $request): JsonResponse

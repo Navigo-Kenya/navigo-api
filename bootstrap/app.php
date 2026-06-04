@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\RequireAdminRole;
+use App\Http\Middleware\ScopeToUserAgencies;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -24,7 +25,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // Added to fix the avatar display on frontend
         $middleware->trustProxies(at: '*');
         $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
-        $middleware->alias(['role' => RequireAdminRole::class]);
+        $middleware->appendToGroup('api', \Illuminate\Http\Middleware\GzipEncoding::class);
+        $middleware->alias([
+            'role'         => RequireAdminRole::class,
+            'agency.scope' => ScopeToUserAgencies::class,
+        ]);
     })
     ->booted(function () {
         RateLimiter::for('otp', fn ($r) => Limit::perMinute(1)->by($r->input('phone')));

@@ -100,6 +100,7 @@ class ConsoleSchedulingController extends Controller
     public function saveTimetable(Request $request, string $routeId): JsonResponse
     {
         $route = Route::findOrFail($routeId);
+        $this->assertAgencyAllowed($request, $route->agency_id);
 
         $data = $request->validate([
             'trips'              => 'required|array',
@@ -197,6 +198,9 @@ class ConsoleSchedulingController extends Controller
             'windows.*.end'         => ['required', 'string', 'regex:/^\d{2}:\d{2}:\d{2}$/'],
             'windows.*.headway_mins'=> 'required|integer|min:1|max:120',
         ]);
+
+        $baseTrip = Trip::where('trip_id', $data['base_trip_id'])->with('route:route_id,agency_id')->firstOrFail();
+        $this->assertAgencyAllowed($request, $baseTrip->route?->agency_id);
 
         $baseTimes = StopTime::where('trip_id', $data['base_trip_id'])
             ->orderBy('stop_sequence')

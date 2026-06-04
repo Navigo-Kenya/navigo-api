@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Console;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\OtpSyncJob;
 use App\Models\Route;
 use App\Models\Shape;
 use App\Models\Stop;
@@ -17,6 +16,10 @@ class ConsoleRouteController extends Controller
     public function index(Request $request): JsonResponse
     {
         $q = Route::withCount('trips');
+
+        if ($request->filled('agency_id')) {
+            $q->where('agency_id', $request->agency_id);
+        }
 
         if ($search = $request->input('search')) {
             $q->where(function ($sub) use ($search) {
@@ -66,14 +69,17 @@ class ConsoleRouteController extends Controller
     {
         $data = $request->validate([
             'route_id'         => 'required|string|unique:routes,route_id',
+            'agency_id'        => 'required|string|exists:agencies,agency_id',
             'route_short_name' => 'required|string|max:10',
             'route_long_name'  => 'required|string|max:255',
             'route_type'       => 'integer|in:0,1,2,3,4,5,6,7',
             'route_color'      => 'nullable|string|max:6',
         ]);
 
+        $this->assertAgencyAllowed($request, $data['agency_id']);
+
         $route = Route::create($data);
-        OtpSyncJob::dispatch()->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json($route, 201);
     }
@@ -81,6 +87,7 @@ class ConsoleRouteController extends Controller
     public function update(Request $request, string $id): JsonResponse
     {
         $route = Route::findOrFail($id);
+        $this->assertAgencyAllowed($request, $route->agency_id);
 
         $data = $request->validate([
             'route_short_name' => 'sometimes|string|max:10',
@@ -90,7 +97,7 @@ class ConsoleRouteController extends Controller
         ]);
 
         $route->update($data);
-        OtpSyncJob::dispatch()->delay(now()->addSeconds(10))->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json($route);
     }
@@ -116,15 +123,18 @@ class ConsoleRouteController extends Controller
             );
         }
 
-        OtpSyncJob::dispatch()->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json(['message' => 'Stop sequence updated.']);
     }
 
-    public function destroy(string $id): JsonResponse
+    public function destroy(Request $request, string $id): JsonResponse
     {
-        Route::findOrFail($id)->delete();
-        OtpSyncJob::dispatch()->onQueue('otp');
+        $route = Route::findOrFail($id);
+        $this->assertAgencyAllowed($request, $route->agency_id);
+
+        $route->delete();
+        $this->scheduleOtpSync();
 
         return response()->json(['message' => 'Route deleted.']);
     }
@@ -181,7 +191,7 @@ class ConsoleRouteController extends Controller
             [$shapeId, $lineWkt]
         );
 
-        OtpSyncJob::dispatch()->delay(now()->addSeconds(10))->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json(['shape_id' => $shapeId]);
     }
@@ -231,7 +241,7 @@ class ConsoleRouteController extends Controller
             }
         });
 
-        OtpSyncJob::dispatch()->delay(now()->addSeconds(10))->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json(['message' => 'Trip stops saved.']);
     }

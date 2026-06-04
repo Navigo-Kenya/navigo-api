@@ -18,12 +18,26 @@ class ConsoleFareController extends Controller
 {
     // ── Zones ─────────────────────────────────────────────────────────────────
 
-    public function zones(): JsonResponse
+    public function zones(Request $request): JsonResponse
     {
+        $scope = $this->agencyScope($request);
+        $pdo = DB::connection()->getPdo();
+
+        $conditions = [];
+        if ($scope !== null) {
+            $inList = implode(',', array_map(fn ($a) => $pdo->quote($a), $scope));
+            $conditions[] = "agency_id IN ({$inList})";
+        } elseif ($request->filled('agency_id')) {
+            $conditions[] = "agency_id = " . $pdo->quote($request->input('agency_id'));
+        }
+
+        $whereClause = $conditions ? "WHERE " . implode(' AND ', $conditions) : "";
+
         $zones = DB::select("
             SELECT id, zone_id, name, agency_id, color,
                    ST_AsGeoJSON(zone_polygon) as geojson
             FROM fare_zones
+            {$whereClause}
             ORDER BY name
         ");
 
@@ -46,6 +60,8 @@ class ConsoleFareController extends Controller
             'geojson'   => 'required|array',
         ]);
 
+        $this->assertAgencyAllowed($request, $data['agency_id']);
+
         $zoneId = 'ZONE_' . Str::upper(Str::random(6));
 
         DB::statement("
@@ -67,6 +83,9 @@ class ConsoleFareController extends Controller
 
     public function updateZone(Request $request, int $id): JsonResponse
     {
+        $zone = FareZone::findOrFail($id);
+        $this->assertAgencyAllowed($request, $zone->agency_id);
+
         $data = $request->validate([
             'name'    => 'sometimes|string|max:255',
             'color'   => 'sometimes|string|size:6',
@@ -98,19 +117,21 @@ class ConsoleFareController extends Controller
         ]);
     }
 
-    public function destroyZone(int $id): JsonResponse
+    public function destroyZone(Request $request, int $id): JsonResponse
     {
-        FareZone::findOrFail($id)->delete();
+        $zone = FareZone::findOrFail($id);
+        $this->assertAgencyAllowed($request, $zone->agency_id);
+        $zone->delete();
         return response()->json(['message' => 'Zone deleted.']);
     }
 
     // ── Fare Attributes ───────────────────────────────────────────────────────
 
-    public function fareAttributes(): JsonResponse
+    public function fareAttributes(Request $request): JsonResponse
     {
-        return response()->json(
-            FareAttribute::with('fareRules')->orderBy('fare_id')->get()
-        );
+        $q = FareAttribute::with('fareRules')->orderBy('fare_id');
+        $this->scopeQuery($q, $request);
+        return response()->json($q->get());
     }
 
     public function saveFareAttribute(Request $request): JsonResponse
@@ -124,6 +145,8 @@ class ConsoleFareController extends Controller
             'agency_id'         => 'required|string|exists:agencies,agency_id',
             'transfer_duration' => 'sometimes|nullable|integer|min:0',
         ]);
+
+        $this->assertAgencyAllowed($request, $data['agency_id']);
 
         $fareId = $data['fare_id'] ?? 'FARE_' . Str::upper(Str::random(8));
 
@@ -142,17 +165,28 @@ class ConsoleFareController extends Controller
         return response()->json($attr, 201);
     }
 
-    public function deleteFareAttribute(int $id): JsonResponse
+    public function deleteFareAttribute(Request $request, int $id): JsonResponse
     {
-        FareAttribute::findOrFail($id)->delete();
+        $attr = FareAttribute::findOrFail($id);
+        $this->assertAgencyAllowed($request, $attr->agency_id);
+        $attr->delete();
         return response()->json(['message' => 'Fare attribute deleted.']);
     }
 
     // ── Fare Rules ────────────────────────────────────────────────────────────
 
-    public function fareRules(): JsonResponse
+    public function fareRules(Request $request): JsonResponse
     {
-        return response()->json(FareRule::orderBy('fare_id')->get());
+        $scope = $this->agencyScope($request);
+        $q = FareRule::orderBy('fare_id');
+
+        if ($scope !== null) {
+            $q->whereHas('fareAttribute', fn ($fa) => $fa->whereIn('agency_id', $scope));
+        } elseif ($request->filled('agency_id')) {
+            $q->whereHas('fareAttribute', fn ($fa) => $fa->where('agency_id', $request->input('agency_id')));
+        }
+
+        return response()->json($q->get());
     }
 
     public function saveFareRule(Request $request): JsonResponse
@@ -177,14 +211,22 @@ class ConsoleFareController extends Controller
 
     // ── Route-Based Fares ─────────────────────────────────────────────────────
 
-    public function routeBasedFares(): JsonResponse
+    public function routeBasedFares(Request $request): JsonResponse
     {
+        $scope = $this->agencyScope($request);
+
         $rules = FareRule::whereNotNull('route_id')
             ->whereNull('origin_id')
             ->whereNull('destination_id')
-            ->with('fareAttribute', 'route')
-            ->orderBy('fare_id')
-            ->get();
+            ->with('fareAttribute', 'route');
+
+        if ($scope !== null) {
+            $rules->whereHas('fareAttribute', fn ($q) => $q->whereIn('agency_id', $scope));
+        } elseif ($request->filled('agency_id')) {
+            $rules->whereHas('fareAttribute', fn ($q) => $q->where('agency_id', $request->input('agency_id')));
+        }
+
+        $rules = $rules->orderBy('fare_id')->get();
 
         return response()->json($rules->map(fn ($r) => [
             'id'            => $r->id,
@@ -207,6 +249,8 @@ class ConsoleFareController extends Controller
             'payment_method' => 'sometimes|integer|in:0,1',
             'agency_id'      => 'required|string|exists:agencies,agency_id',
         ]);
+
+        $this->assertAgencyAllowed($request, $data['agency_id']);
 
         $fareId = 'FARE_ROUTE_' . Str::upper($data['route_id']);
 
@@ -430,13 +474,14 @@ class ConsoleFareController extends Controller
 
     // ── Export ────────────────────────────────────────────────────────────────
 
-    public function exportFareFiles(): Response
+    public function exportFareFiles(Request $request): Response
     {
+        $scope  = $this->agencyScope($request);
         $tmpDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'fare_' . uniqid();
         mkdir($tmpDir, 0755, true);
 
-        $this->writeFareAttributesCsv($tmpDir);
-        $this->writeFareRulesCsv($tmpDir);
+        $this->writeFareAttributesCsv($tmpDir, $scope);
+        $this->writeFareRulesCsv($tmpDir, $scope);
 
         $zipPath = $tmpDir . DIRECTORY_SEPARATOR . 'fare_gtfs.zip';
         $zip     = new \ZipArchive();
@@ -455,30 +500,34 @@ class ConsoleFareController extends Controller
         ]);
     }
 
-    private function writeFareAttributesCsv(string $dir): void
+    private function writeFareAttributesCsv(string $dir, ?array $scope): void
     {
         $handle = fopen($dir . DIRECTORY_SEPARATOR . 'fare_attributes.txt', 'w');
         fputcsv($handle, ['fare_id', 'price', 'currency_type', 'payment_method', 'transfers', 'agency_id', 'transfer_duration']);
-        FareAttribute::all()->each(function ($a) use ($handle) {
-            fputcsv($handle, [
-                $a->fare_id, $a->price, $a->currency_type,
-                $a->payment_method, $a->transfers ?? '',
-                $a->agency_id, $a->transfer_duration ?? '',
-            ]);
-        });
+        FareAttribute::when($scope !== null, fn ($q) => $q->whereIn('agency_id', $scope))
+            ->get()
+            ->each(function ($a) use ($handle) {
+                fputcsv($handle, [
+                    $a->fare_id, $a->price, $a->currency_type,
+                    $a->payment_method, $a->transfers ?? '',
+                    $a->agency_id, $a->transfer_duration ?? '',
+                ]);
+            });
         fclose($handle);
     }
 
-    private function writeFareRulesCsv(string $dir): void
+    private function writeFareRulesCsv(string $dir, ?array $scope): void
     {
         $handle = fopen($dir . DIRECTORY_SEPARATOR . 'fare_rules.txt', 'w');
         fputcsv($handle, ['fare_id', 'route_id', 'origin_id', 'destination_id', 'contains_id']);
-        FareRule::all()->each(function ($r) use ($handle) {
-            fputcsv($handle, [
-                $r->fare_id, $r->route_id ?? '', $r->origin_id ?? '',
-                $r->destination_id ?? '', $r->contains_id ?? '',
-            ]);
-        });
+        FareRule::when($scope !== null, fn ($q) => $q->whereHas('fareAttribute', fn ($fa) => $fa->whereIn('agency_id', $scope)))
+            ->get()
+            ->each(function ($r) use ($handle) {
+                fputcsv($handle, [
+                    $r->fare_id, $r->route_id ?? '', $r->origin_id ?? '',
+                    $r->destination_id ?? '', $r->contains_id ?? '',
+                ]);
+            });
         fclose($handle);
     }
 }

@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Console;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\OtpSyncJob;
 use App\Models\Contribution;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -65,7 +64,7 @@ class ConsoleContributionController extends Controller
             $contribution->user()->increment('points', 10);
         }
 
-        OtpSyncJob::dispatch()->onQueue('otp');
+        $this->scheduleOtpSync();
 
         return response()->json(['message' => 'Contribution approved. OTP sync queued.']);
     }
@@ -102,6 +101,19 @@ class ConsoleContributionController extends Controller
         return response()->json($contribution);
     }
 
+    public function assign(Request $request, int $id): JsonResponse
+    {
+        $contribution = Contribution::findOrFail($id);
+
+        $data = $request->validate([
+            'assigned_to' => 'nullable|integer|exists:users,id',
+        ]);
+
+        $contribution->update(['assigned_to' => $data['assigned_to']]);
+
+        return response()->json($contribution);
+    }
+
     public function bulkApprove(Request $request): JsonResponse
     {
         $data = $request->validate(['ids' => 'required|array', 'ids.*' => 'integer']);
@@ -114,7 +126,7 @@ class ConsoleContributionController extends Controller
             ]);
 
         if ($count > 0) {
-            OtpSyncJob::dispatch()->onQueue('otp');
+            $this->scheduleOtpSync();
         }
 
         return response()->json(['approved' => $count]);

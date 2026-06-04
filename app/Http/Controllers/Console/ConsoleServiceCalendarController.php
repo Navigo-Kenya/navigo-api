@@ -11,11 +11,21 @@ use Illuminate\Support\Facades\DB;
 
 class ConsoleServiceCalendarController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        return response()->json(
-            ServiceCalendar::withCount('trips')->orderBy('name')->get()
-        );
+        $q = ServiceCalendar::withCount('trips')->orderBy('name');
+
+        if ($request->filled('agency_id')) {
+            $agencyId = $request->agency_id;
+            $q->whereExists(fn ($sub) =>
+                $sub->from('trips')
+                    ->join('routes', 'routes.route_id', '=', 'trips.route_id')
+                    ->whereColumn('trips.service_id', 'service_calendars.service_id')
+                    ->where('routes.agency_id', $agencyId)
+            );
+        }
+
+        return response()->json($q->get());
     }
 
     public function show(string $id): JsonResponse

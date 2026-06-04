@@ -7,6 +7,7 @@ use App\Jobs\LogJourneyJob;
 use App\Services\TransitEngineService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class RouteController extends Controller
@@ -60,6 +61,21 @@ class RouteController extends Controller
         ])->onQueue('default');
 
         return response()->json(['data' => $routes]);
+    }
+
+    public function warmup(): JsonResponse
+    {
+        try {
+            Http::timeout(5)->get(config('transit.otp.base_url') . '/plan', [
+                'fromPlace'       => '-1.2864,36.8172',
+                'toPlace'         => '-1.2921,36.8219',
+                'mode'            => 'WALK',
+                'numItineraries'  => 1,
+            ]);
+        } catch (\Throwable) {
+            // Warm-up is best-effort — ignore failures
+        }
+        return response()->json(['ok' => true]);
     }
 
     private function extractJourneyMeta(array $itinerary): array
