@@ -6,7 +6,9 @@
     email admin@hopln.app
 }
 
-api.hopln.app {
+
+#api.hopln.app
+:80 {
     # Laravel public root — used by php_fastcgi to construct SCRIPT_FILENAME
     root * /var/www/public
 
