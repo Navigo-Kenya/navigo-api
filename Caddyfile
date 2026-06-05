@@ -6,12 +6,13 @@
     email admin@navigo.co.ke
 }
 
+
 # Uniquement le moteur API Laravel (Hébergé sur Hetzner)
 api.navigo.co.ke {
     # Racine publique de Laravel dans votre conteneur Docker
     root * /var/www/public
 
-    # Compression des réponses (indispensable pour économiser la data mobile au Kenya)
+    # Compression des réponses pour économiser la data mobile au Kenya
     encode zstd gzip
 
     # On indique à Caddy d'utiliser le certificat d'origine Cloudflare
@@ -23,17 +24,16 @@ api.navigo.co.ke {
         X-Content-Type-Options nosniff
         X-XSS-Protection "1; mode=block"
         Referrer-Policy strict-origin-when-cross-origin
-        # IMPORTANT : On autorise explicitement la géolocalisation pour votre API
         Permissions-Policy "geolocation=(self), camera=(), microphone=()"
         -Server
     }
 
     # Proxy vers le conteneur PHP-FPM de votre application Laravel
     php_fastcgi app:9000 {
-        # Liste officielle des blocs d'adresses IP de Cloudflare (obligatoire avec le proxy Cloudflare)
-        trusted_proxies static 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22
+        # CORRECTION : Le mot 'static' a été retiré, on liste directement les blocs IP Cloudflare
+        trusted_proxies 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22
 
-        # Augmentation des timeouts à 45s pour les calculs d'itinéraires de transport lourds
+        # Longs timeouts pour les requêtes lourdes de calcul d'itinéraires à Nairobi
         read_timeout 45s
         write_timeout 45s
     }
@@ -48,3 +48,4 @@ api.navigo.co.ke {
         format json
     }
 }
+
