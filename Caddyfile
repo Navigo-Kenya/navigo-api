@@ -3,7 +3,7 @@
     admin off
 
     # Email pour votre compte Let's Encrypt / ACME
-    email admin@hopln.app
+    email admin@navigo.co.ke
 }
 
 # Uniquement le moteur API Laravel (Hébergé sur Hetzner)
