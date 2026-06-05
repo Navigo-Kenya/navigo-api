@@ -14,6 +14,9 @@ api.navigo.co.ke {
     # Compression des réponses (indispensable pour économiser la data mobile au Kenya)
     encode zstd gzip
 
+    # On indique à Caddy d'utiliser le certificat d'origine Cloudflare
+    tls /certs/cert.pem /certs/key.pem
+
     # En-têtes de sécurité optimisés pour une API de transport
     header {
         X-Frame-Options DENY
