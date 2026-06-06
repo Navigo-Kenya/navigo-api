@@ -24,15 +24,15 @@ This document is the single source of truth for deploying and operating the Hopl
                         ┌─────────────────────────────────┐
                         │         Cloudflare CDN          │
                         │                                 │
-                        │  hopln.app   → website/ (SSG)  │
-                        │  console.hopln.app → console/  │
+                        │  navigo.co.ke   → website/ (SSG)  │
+                        │  console.navigo.co.ke → console/  │
                         │  (Cloudflare Pages)             │
                         └──────────────┬──────────────────┘
                                        │ HTTPS
                                        ▼
                         ┌─────────────────────────────────┐
                         │      Hetzner CPX32              │
-                        │      api.hopln.app              │
+                        │      api.navigo.co.ke              │
                         │                                 │
                         │  ┌─────────────────────────┐   │
                         │  │ caddy  :80 :443          │   │
@@ -122,37 +122,37 @@ The remaining 4.5 GB + 8 GB swap absorbs the OTP build spike (4 GB heap, ~10–1
 3. Note your: **Account ID**, **Access Key ID**, **Secret Access Key**
 4. These go into `.env` on the server as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT`
 
-### Pages — `hopln.app` (website)
+### Pages — `navigo.co.ke` (website)
 
 1. Cloudflare Dashboard → Pages → **Create a project** → Connect Git
 2. Select the `website/` repository
 3. Build command: `npm run build`
 4. Output directory: `out`
 5. Environment variables:
-   - `NEXT_PUBLIC_API_URL` = `https://api.hopln.app`
+   - `NEXT_PUBLIC_API_URL` = `https://api.navigo.co.ke`
    - `NEXT_PUBLIC_MAPBOX_TOKEN` = your Mapbox public token
 
-### Pages — `console.hopln.app` (operator console)
+### Pages — `console.navigo.co.ke` (operator console)
 
 1. Pages → **Create a project** → Connect Git
 2. Select the `console/` repository
 3. Build command: `npm run build`
 4. Output directory: `dist`
 5. Environment variables:
-   - `VITE_API_URL` = `https://api.hopln.app/api`
+   - `VITE_API_URL` = `https://api.navigo.co.ke/api`
    - `VITE_MAPBOX_TOKEN` = your Mapbox public token
 
 **Restrict access with Cloudflare Access (recommended):**
 1. Zero Trust → Access → **Applications** → Add an application → Self-hosted
-2. Application domain: `console.hopln.app`
-3. Policy: Allow emails in `@hopln.app` domain, or add individual email addresses
+2. Application domain: `console.navigo.co.ke`
+3. Policy: Allow emails in `@navigo.co.ke` domain, or add individual email addresses
 4. This adds a login gate before the console SPA even loads — free for up to 50 users
 
 ---
 
 ## 4. DNS records
 
-Add these in Cloudflare DNS for `hopln.app`:
+Add these in Cloudflare DNS for `navigo.co.ke`:
 
 | Name | Type | Value | Proxy |
 |---|---|---|---|
@@ -160,7 +160,7 @@ Add these in Cloudflare DNS for `hopln.app`:
 | `@` | CNAME | `<Pages domain for website>` | Yes |
 | `console` | CNAME | `<Pages domain for console>` | Yes |
 
-> **Note**: With Cloudflare proxy enabled on `api.hopln.app`, the server's real IP is hidden. Caddy still handles TLS termination (end-to-end encryption mode in Cloudflare: Full (strict)).
+> **Note**: With Cloudflare proxy enabled on `api.navigo.co.ke`, the server's real IP is hidden. Caddy still handles TLS termination (end-to-end encryption mode in Cloudflare: Full (strict)).
 
 ---
 
@@ -310,7 +310,7 @@ crontab -e
 docker compose -f /opt/hopln/api/docker-compose.prod.yml ps
 
 # API responding
-curl -s https://api.hopln.app/api/v1/stops/nearby?lat=-1.2921&lng=36.8219 | head -c 200
+curl -s https://api.navigo.co.ke/api/v1/stops/nearby?lat=-1.2921&lng=36.8219 | head -c 200
 
 # OTP health
 docker compose -f /opt/hopln/api/docker-compose.prod.yml exec otp \
@@ -551,4 +551,4 @@ When the CPX32 becomes insufficient:
 - **API/PHP slow under load?** → Upgrade to CPX41 (8 vCPU, 16 GB). Same compose, zero config changes.
 - **OTP needs more memory** (expanding to Kenya-wide routing)? → Move OTP to a dedicated CX32. Update `OTP_BASE_URL` in `.env`. Update `OTP_BUILD_CMD` to SSH to the OTP box.
 - **Database growing large?** → Attach a Hetzner Volume. Stop postgres, move `postgres_data` to the volume, update the bind mount path.
-- **High API traffic?** → Enable Cloudflare proxy caching on `api.hopln.app` for read-heavy endpoints.
+- **High API traffic?** → Enable Cloudflare proxy caching on `api.navigo.co.ke` for read-heavy endpoints.
