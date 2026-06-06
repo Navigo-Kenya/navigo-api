@@ -22,7 +22,6 @@ return [
     'allowed_origins' => [
         // Production, marketing website & future web app
         'https://console.navigo.co.ke',
-        'https://www.hopln.app',
         // Local dev
         'http://localhost:5173',
         'http://localhost:4173',
