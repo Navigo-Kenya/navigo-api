@@ -24,7 +24,10 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Added to fix the avatar display on frontend
         $middleware->trustProxies(at: '*');
-        $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
+        // $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
+
+        $middleware->statefulApi();
+        
         $middleware->appendToGroup('api', \Illuminate\Http\Middleware\GzipEncoding::class);
         $middleware->alias([
             'role'         => RequireAdminRole::class,
