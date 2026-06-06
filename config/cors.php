@@ -22,6 +22,7 @@ return [
     'allowed_origins' => [
         // Production, marketing website & future web app
         'https://console.navigo.co.ke',
+        'https://navigo.co.ke',
         // Local dev
         'http://localhost:5173',
     ],
