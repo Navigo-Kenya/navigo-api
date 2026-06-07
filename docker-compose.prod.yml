@@ -113,7 +113,7 @@ services:
     image: opentripplanner/opentripplanner:2.4.0
     container_name: hopln_otp
     environment:
-      - JAVA_OPTS=-Xmx3G -Xms512m -XX:+UseG1GC
+      - JAVA_OPTS=-Xmx4G -Xms512m -XX:+UseG1GC
     volumes:
       - otp_data:/var/opentripplanner
     command: --load
