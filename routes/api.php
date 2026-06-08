@@ -71,9 +71,6 @@ Route::prefix('v1')->group(function () {
     Route::get('/contributions/nearby',    [ContributionController::class, 'nearby']);
     Route::get('/community/leaderboard',   [CommunityController::class, 'leaderboard']);
 
-    // ── Map reports (public) ───────────────────────────────────────
-    Route::post('/reports',         [ReportController::class, 'store'])->middleware('throttle:reports');
-    Route::get('/reports/viewport', [ReportController::class, 'viewport']);
 
     // ── User data ──────────────────────────────────────────────────
     Route::prefix('user')->middleware('auth:sanctum')->group(function () {
@@ -107,4 +104,9 @@ Route::prefix('v1')->group(function () {
 
     // ── Public GTFS-RT feeds ───────────────────────────────────────
     Route::get('gtfs-rt/alerts', [ConsoleAlertsController::class, 'gtfsRtFeed']);
+
+    
+    // ── Map reports (public) ───────────────────────────────────────
+    Route::get('/reports/viewport', [ReportController::class, 'viewport']);
+    Route::post('/reports',         [ReportController::class, 'store']);
 });
