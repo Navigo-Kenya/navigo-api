@@ -72,8 +72,8 @@ Route::prefix('v1')->group(function () {
     Route::get('/community/leaderboard',   [CommunityController::class, 'leaderboard']);
 
     // ── Map reports (public) ───────────────────────────────────────
-    Route::get('/reports/viewport', [ReportController::class, 'viewport']);
     Route::post('/reports',         [ReportController::class, 'store'])->middleware('throttle:reports');
+    Route::get('/reports/viewport', [ReportController::class, 'viewport']);
 
     // ── User data ──────────────────────────────────────────────────
     Route::prefix('user')->middleware('auth:sanctum')->group(function () {
