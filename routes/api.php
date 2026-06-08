@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OAuthController;
 use App\Http\Controllers\Api\V1\PhoneController;
+use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\RouteController;
 use App\Http\Controllers\Api\V1\SavedJourneysController;
 use App\Http\Controllers\Api\V1\SavedPlacesController;
@@ -69,6 +70,10 @@ Route::prefix('v1')->group(function () {
     // ── Community (public) ─────────────────────────────────────────
     Route::get('/contributions/nearby',    [ContributionController::class, 'nearby']);
     Route::get('/community/leaderboard',   [CommunityController::class, 'leaderboard']);
+
+    // ── Map reports (public) ───────────────────────────────────────
+    Route::get('/reports/viewport', [ReportController::class, 'viewport']);
+    Route::post('/reports',         [ReportController::class, 'store'])->middleware('throttle:reports');
 
     // ── User data ──────────────────────────────────────────────────
     Route::prefix('user')->middleware('auth:sanctum')->group(function () {

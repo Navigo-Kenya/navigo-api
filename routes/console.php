@@ -8,6 +8,7 @@ use App\Jobs\PurgeOldPositionsJob;
 use App\Jobs\PurgeOldTripUpdatesJob;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
@@ -20,3 +21,11 @@ Schedule::job(new CheckIncidentEscalationsJob)->everyFifteenMinutes();
 Schedule::job(new ComputeOnTimePerformanceJob)->dailyAt('01:00');
 Schedule::job(new PurgeOldPositionsJob)->dailyAt('02:00');
 Schedule::job(new PurgeOldTripUpdatesJob)->dailyAt('02:30');
+
+// Run every 5 minutes to clean up expired map reports
+Schedule::call(function () {
+    DB::table('transit_reports')
+        ->where('status', 'active')
+        ->where('expires_at', '<', now())
+        ->update(['status' => 'expired']);
+})->everyFiveMinutes();
