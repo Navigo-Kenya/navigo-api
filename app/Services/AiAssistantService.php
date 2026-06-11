@@ -260,7 +260,7 @@ class AiAssistantService
     {
         try {
             $response = Http::withoutVerifying()
-                ->withToken($apiKey)
+                ->withToken(config('services.openai.key'))
                 ->timeout(45)
                 ->post('https://api.openai.com/v1/chat/completions', [
                     'model'       => $this->model,
