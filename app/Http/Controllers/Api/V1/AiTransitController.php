@@ -14,8 +14,8 @@ class AiTransitController extends Controller
 
     public function planRouteWithAi(Request $request)
     {
-        // Full pipeline can take up to 2 min (Whisper + 2× GPT + OTP + TTS)
-        set_time_limit(180);
+        // Reduced max execution window because native audio processing executes significantly faster
+        set_time_limit(60);
 
         $result = $this->aiService->chat(
             sessionId: $request->input('session_id', 'default'),
@@ -30,19 +30,23 @@ class AiTransitController extends Controller
             return response()->json(['error' => 'Could not process your request.'], 400);
         }
 
-        Log::info('Kwame chat turn completed', [
+        Log::info('Kwame conversational turn processed', [
             'session'   => $request->input('session_id'),
             'has_route' => !empty($result['route']),
             'has_hold'  => !empty($result['holding_phrase']),
         ]);
 
-        if (!empty($result['route']) && \is_array($result['route'])) {
-            $first   = $result['route'][0];
-            $transit = array_values(array_filter($first['segments'] ?? [], fn ($s) => $s['mode'] !== 'WALK'));
+        // Asynchronously process analytics tracking when a route is active
+        if (!empty($result['route']) && is_array($result['route'])) {
+            $routeData = $result['route'];
+            
+            // OpenTripPlanner tracks route components through transit "legs"
+            $legs = $routeData['legs'] ?? $routeData['segments'] ?? [];
+            $transitLegs = array_values(array_filter($legs, fn ($leg) => ($leg['mode'] ?? '') !== 'WALK'));
 
-            $origin      = $transit[0]['from']['name'] ?? null;
-            $destination = \count($transit) > 0 ? array_reverse($transit)[0]['to']['name'] : null;
-            $summary     = $first['summary'] ?? '';
+            $origin = $transitLegs[0]['from']['name'] ?? null;
+            $destination = count($transitLegs) > 0 ? end($transitLegs)['to']['name'] : null;
+            $summary = $routeData['summary'] ?? '';
 
             LogJourneyJob::dispatch([
                 'origin_name'      => $origin,
