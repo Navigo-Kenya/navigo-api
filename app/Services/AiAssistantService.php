@@ -21,8 +21,8 @@ class AiAssistantService
     private function systemPrompt(): string
     {
         return <<<'PROMPT'
-            You are Kwame, the voice assistant for Navigo, a public transit navigation platform. 
-            You are a warm, friendly, and knowledgeable guide for Nairobi's public transport network. 
+            You are Kwame, the voice assistant for Navigo, a public transit navigation platform.
+            You are a warm, friendly, and knowledgeable guide for Nairobi's public transport network.
             Speak casually and empathetically, like a helpful local friend.
 
             CRITICAL INSTRUCTIONS:
@@ -80,8 +80,13 @@ class AiAssistantService
         ?float  $userLng   = null,
         array   $aliases   = [],
     ): ?array {
-        $apiKey = env('OPENAI_API_KEY');
-        
+
+        $apiKey = config('services.openai.key');
+
+        if (!$apiKey) {
+            throw new Exception("OpenAI API Key is missing. Check your .env file.");
+        }
+
         // Strategy 1: Global Text Response Cache (Bypass OpenAI completely for simple text queries)
         if ($text && empty($audioFile['base64'])) {
             $textCacheKey = 'navigo_text_cache:' . md5(strtolower(trim($text)));
@@ -113,20 +118,20 @@ class AiAssistantService
         }
 
         $history[] = $userMessage;
-        
+
         // Call 1: Intent Extraction or Direct Chat
         $messages = $this->buildMessages($history, $userLat, $userLng);
         $firstResponse = $this->callAudioChat($apiKey, $messages);
-        
+
         if (!$firstResponse) return null;
 
         $assistantMsg = $firstResponse['choices'][0]['message'];
         $holdingPhrase = null;
         $route = null;
-        
+
         if (!empty($assistantMsg['tool_calls'])) {
             $toolCall = $assistantMsg['tool_calls'][0];
-            
+
             if ($toolCall['function']['name'] === 'get_route') {
                 $args = json_decode($toolCall['function']['arguments'], true) ?? [];
                 $holdingPhrase = $args['holding_phrase'] ?? "Checking routes for you...";
@@ -147,10 +152,10 @@ class AiAssistantService
                     if (Cache::has($geoCacheKey)) {
                         Log::info('Geospatial route cache hit (Saved OTP + OpenAI Call 2)', ['session' => $sessionId]);
                         $cachedData = Cache::get($geoCacheKey);
-                        
+
                         // Sync history with the cached transcript before saving to keep session context coherent
                         $this->saveLightweightHistory($sessionId, $history, $cachedData['spoken_response']);
-                        
+
                         return [
                             'spoken_response' => $cachedData['spoken_response'],
                             'tts_audio'       => $cachedData['tts_audio'],
@@ -286,7 +291,7 @@ class AiAssistantService
     {
         foreach ($history as &$msg) {
             if ($msg['role'] === 'user' && is_array($msg['content'])) {
-                $msg['content'] = '[User Audio Input]'; 
+                $msg['content'] = '[User Audio Input]';
             }
         }
         $history[] = ['role' => 'assistant', 'content' => $finalTranscript];
