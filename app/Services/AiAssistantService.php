@@ -9,7 +9,7 @@ use Exception;
 
 class AiAssistantService
 {
-    protected string $model = 'gpt-4o-mini-audio-preview';
+    protected string $model = 'gpt-audio-mini';
     const SESSION_TTL = 1800; // 30 minutes
     const ROUTE_CACHE_TTL = 600; // 10 minutes for live transit variations
 
@@ -271,7 +271,16 @@ class AiAssistantService
                     'tool_choice' => 'auto',
                 ]);
 
-            return $response->successful() ? $response->json() : null;
+            // CRITICAL: Stop silently swallowing errors!
+            if (!$response->successful()) {
+                Log::error('OpenAI API Rejected Request', [
+                    'status' => $response->status(),
+                    'body'   => $response->json()
+                ]);
+                return null;
+            }
+
+            return $response->json();
         } catch (Exception $e) {
             Log::error('OpenAI Call Failure: ' . $e->getMessage());
             return null;
