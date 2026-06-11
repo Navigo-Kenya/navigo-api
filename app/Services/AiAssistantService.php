@@ -121,7 +121,7 @@ class AiAssistantService
 
         // Call 1: Intent Extraction or Direct Chat
         $messages = $this->buildMessages($history, $userLat, $userLng);
-        $firstResponse = $this->callAudioChat($apiKey, $messages);
+        $firstResponse = $this->callAudioChat($messages);
 
         if (!$firstResponse) return null;
 
@@ -180,7 +180,7 @@ class AiAssistantService
 
                 // Call 2: Generate final vocal summary from OTP data
                 $secondMessages = $this->buildMessages($history, $userLat, $userLng);
-                $secondResponse = $this->callAudioChat($apiKey, $secondMessages);
+                $secondResponse = $this->callAudioChat($secondMessages);
                 $finalAssistantMsg = $secondResponse['choices'][0]['message'] ?? [];
             }
         } else {
@@ -256,7 +256,7 @@ class AiAssistantService
         return $routes[0] ?? null;
     }
 
-    private function callAudioChat(string $apiKey, array $messages): ?array
+    private function callAudioChat(array $messages): ?array
     {
         try {
             $response = Http::withoutVerifying()
