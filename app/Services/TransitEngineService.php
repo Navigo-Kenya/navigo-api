@@ -192,10 +192,11 @@ class TransitEngineService
                                 ? $dbRoute->route_color
                                 : '#' . $dbRoute->route_color;
                         }
-                    } catch (\Exception $e) {
+                    } catch (Exception $e) {
                         // Silently fallback if the model fails
                     }
                 }
+            }
 
             if ($isTransit && $routeName) {
                 $routeNames[] = $routeName;
