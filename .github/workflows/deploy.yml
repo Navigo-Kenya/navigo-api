@@ -1,29 +1,49 @@
-name: Deploy API
+name: Deploy and Refresh API
 
 on:
+  push:
+    branches:
+      - main  # This will automatically trigger the workflow on every push
   workflow_dispatch:
     inputs:
-      environment:
-        description: "Target environment"
+      deployment_type:
+        description: "Which script do you want to run?"
         required: true
-        default: "production"
+        default: "refresh_only"
         type: choice
         options:
-          - production
+          - refresh_only
+          - full_first_time_deploy
 
 jobs:
   deploy:
-    name: Deploy to Hetzner CPX32
+    name: Update Hetzner CPX32
     runs-on: ubuntu-latest
     environment: production
 
     steps:
-      - name: Deploy via SSH
+      # Step 1: ONLY runs if you manually select "full_first_time_deploy" in the GitHub UI
+      - name: Run First-Time Deploy Script
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.deployment_type == 'full_first_time_deploy'
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.HETZNER_HOST }}
+          host: ${{ secrets.SERVER_HOST }}
           username: deploy
-          key: ${{ secrets.HETZNER_SSH_KEY }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
           script: bash /opt/hopln/api/scripts/deploy.sh
+          command_timeout: 10m
+
+      # Step 2: ALWAYS runs on a 'git push', or if you manually select "refresh_only"
+      - name: Run Routine Refresh Script
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.deployment_type == 'refresh_only')
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: deploy
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
+          script: |
+            cd /opt/hopln/api/scripts
+            bash refresh.sh
           command_timeout: 10m
