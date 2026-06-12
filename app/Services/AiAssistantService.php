@@ -9,7 +9,10 @@ use Exception;
 
 class AiAssistantService
 {
-    protected string $model = 'gpt-audio-mini';
+    // Define both models for dynamic swapping
+    protected string $audioModel = 'gpt-audio-mini';
+    protected string $textModel  = 'gpt-4o-mini';
+
     const SESSION_TTL = 1800; // 30 minutes
     const ROUTE_CACHE_TTL = 600; // 10 minutes for live transit variations
 
@@ -129,7 +132,7 @@ class AiAssistantService
 
         $assistantMsg = $firstResponse['choices'][0]['message'];
         $holdingPhrase = null;
-        $routes = []; // Changed to plural
+        $routes = [];
 
         if (!empty($assistantMsg['tool_calls'])) {
             $toolCall = $assistantMsg['tool_calls'][0];
@@ -144,7 +147,6 @@ class AiAssistantService
                     $toolContent = json_encode(['success' => false, 'reason' => 'unresolved_alias', 'message' => $resolvedCoords['error']]);
                 } else {
                     // Strategy 2: Geospatial Grid Caching
-                    // Rounding coordinates to 3 decimal places creates an ~110m bounding box grid
                     $geoCacheKey = sprintf(
                         "navigo_geo_route:%s:%s",
                         round($resolvedCoords['from']['lat'], 3) . ',' . round($resolvedCoords['from']['lng'], 3),
@@ -155,19 +157,17 @@ class AiAssistantService
                         Log::info('Geospatial route cache hit (Saved OTP + OpenAI Call 2)', ['session' => $sessionId]);
                         $cachedData = Cache::get($geoCacheKey);
 
-                        // Sync history with the cached transcript before saving to keep session context coherent
                         $this->saveLightweightHistory($sessionId, $history, $cachedData['spoken_response']);
 
                         return [
                             'spoken_response' => $cachedData['spoken_response'],
                             'tts_audio'       => $cachedData['tts_audio'],
                             'holding_phrase'  => $holdingPhrase,
-                            'routes'           => $cachedData['routes'] ?? [], // Changed to plural
+                            'routes'          => $cachedData['routes'] ?? [],
                         ];
                     }
 
                     // Cache Miss: Query OpenTripPlanner
-                    // Request ALL itineraries
                     $routes = $this->executeTransitPlan($resolvedCoords['from'], $resolvedCoords['to'], $args['walkReluctance'] ?? 13.5);
                     $toolContent = !empty($routes)
                         ? json_encode(['success' => true, 'routes_found' => count($routes), 'options' => $routes])
@@ -199,10 +199,9 @@ class AiAssistantService
             'spoken_response' => $transcript,
             'tts_audio'       => $audioData,
             'holding_phrase'  => $holdingPhrase,
-            'routes'           => $routes,
+            'routes'          => $routes,
         ];
 
-        // Store into structural caches for future reuse
         if ($text && empty($audioFile['base64']) && empty($routes)) {
             Cache::put($textCacheKey, $output, self::ROUTE_CACHE_TTL);
         }
@@ -246,7 +245,6 @@ class AiAssistantService
 
     private function executeTransitPlan(array $from, array $to, float $walkReluctance): array
     {
-        // Return the full array of routes instead of just the first one
         return $this->transitEngine->findJourney(
             (float) $from['lat'],
             (float) $from['lng'],
@@ -258,25 +256,27 @@ class AiAssistantService
         );
     }
 
-    // 1. Update the signature to accept $needsAudio
     private function callAudioChat(array $messages, bool $needsAudio = true): ?array
     {
         try {
-            // 2. Dynamically set the modality
+            // 1. Dynamically swap models to save costs and prevent 400 errors
+            $targetModel = $needsAudio ? $this->audioModel : $this->textModel;
+
             $payload = [
-                'model'       => $this->model,
-                'modalities'  => $needsAudio ? ['text', 'audio'] : ['text'],
+                'model'       => $targetModel,
                 'messages'    => $messages,
                 'tools'       => $this->tools(),
                 'tool_choice' => 'auto',
             ];
 
-            // 3. Only attach the voice format requirements if audio is requested
+            // 2. Only append audio configuration if we are using the audio model
             if ($needsAudio) {
-                $payload['audio'] = ['voice' => 'alloy', 'format' => 'wav'];
+                $payload['modalities'] = ['text', 'audio'];
+                $payload['audio']      = ['voice' => 'alloy', 'format' => 'wav'];
             }
 
-            $response = Http::withToken(config('services.openai.key'))
+            $response = Http::withoutVerifying()
+                ->withToken(config('services.openai.key'))
                 ->timeout(45)
                 ->post('https://api.openai.com/v1/chat/completions', $payload);
 
