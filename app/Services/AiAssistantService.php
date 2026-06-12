@@ -267,7 +267,31 @@ class AiAssistantService
 
     private function executeTransitPlan(array $from, array $to, float $walkReluctance): array
     {
-        return $this->transitEngine->findJourney((float)$from['lat'], (float)$from['lng'], (float)$to['lat'], (float)$to['lng'], null, null, $walkReluctance);
+        $routes = $this->transitEngine->findJourney(
+            (float)$from['lat'],
+            (float)$from['lng'],
+            (float)$to['lat'],
+            (float)$to['lng'],
+            null, null, $walkReluctance
+        );
+
+        // Inject the real geocoded names to overwrite OTP's generic "Origin/Destination" labels
+        foreach ($routes as &$route) {
+            $segments = &$route['segments'];
+            if (!empty($segments)) {
+                $firstIdx = 0;
+                $lastIdx = count($segments) - 1;
+
+                if (isset($from['name'])) {
+                    $segments[$firstIdx]['from']['name'] = $from['name'];
+                }
+                if (isset($to['name'])) {
+                    $segments[$lastIdx]['to']['name'] = $to['name'];
+                }
+            }
+        }
+
+        return $routes;
     }
 
     private function callAudioChat(array $messages, bool $needsAudio = true, bool $includeTools = true): ?array

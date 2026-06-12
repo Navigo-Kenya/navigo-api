@@ -181,23 +181,21 @@ class TransitEngineService
                 if ($rawRouteId) {
                     $cleanRouteId = \str_contains($rawRouteId, ':') ? explode(':', $rawRouteId, 2)[1] : $rawRouteId;
                     try {
-                        $dbRoute = Route::where('route_id', $cleanRouteId)->first();
+                        // Check both the Route ID AND the Route Name!
+                        $dbRoute = Route::where('route_id', $cleanRouteId)
+                                        ->orWhere('route_short_name', $routeName) // Ensure your DB column name is correct here
+                                        ->orWhere('name', $routeName)             // Or whatever your name column is
+                                        ->first();
+
                         if ($dbRoute && !empty($dbRoute->route_color)) {
                             $routeColor = str_starts_with($dbRoute->route_color, '#')
                                 ? $dbRoute->route_color
                                 : '#' . $dbRoute->route_color;
                         }
-                    } catch (Exception $e) {
+                    } catch (\Exception $e) {
                         // Silently fallback if the model fails
                     }
                 }
-                // Fallback to OTP's default color if DB is empty
-                if (!$routeColor && !empty($leg['routeColor'])) {
-                    $routeColor = str_starts_with($leg['routeColor'], '#')
-                        ? $leg['routeColor']
-                        : '#' . $leg['routeColor'];
-                }
-            }
 
             if ($isTransit && $routeName) {
                 $routeNames[] = $routeName;
