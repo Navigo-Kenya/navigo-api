@@ -44,6 +44,6 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
           script: |
-            cd /opt/hopln/api/scripts
-            bash refresh.sh
+            cd /opt/hopln/api
+            bash scripts/refresh.sh
           command_timeout: 10m
