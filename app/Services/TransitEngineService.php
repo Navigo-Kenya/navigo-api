@@ -2,12 +2,13 @@
 
 namespace App\Services;
 
-use App\Models\Stop;
 use Exception;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Models\Route;
+use App\Models\Stop;
 
 class TransitEngineService
 {
@@ -173,6 +174,31 @@ class TransitEngineService
 
             $totalDistance += $distance;
 
+            // Extract the route color
+            $routeColor = null;
+            if ($isTransit) {
+                $rawRouteId = $leg['routeId'] ?? null;
+                if ($rawRouteId) {
+                    $cleanRouteId = \str_contains($rawRouteId, ':') ? explode(':', $rawRouteId, 2)[1] : $rawRouteId;
+                    try {
+                        $dbRoute = Route::where('route_id', $cleanRouteId)->first();
+                        if ($dbRoute && !empty($dbRoute->route_color)) {
+                            $routeColor = str_starts_with($dbRoute->route_color, '#')
+                                ? $dbRoute->route_color
+                                : '#' . $dbRoute->route_color;
+                        }
+                    } catch (Exception $e) {
+                        // Silently fallback if the model fails
+                    }
+                }
+                // Fallback to OTP's default color if DB is empty
+                if (!$routeColor && !empty($leg['routeColor'])) {
+                    $routeColor = str_starts_with($leg['routeColor'], '#')
+                        ? $leg['routeColor']
+                        : '#' . $leg['routeColor'];
+                }
+            }
+
             if ($isTransit && $routeName) {
                 $routeNames[] = $routeName;
             }
@@ -248,6 +274,7 @@ class TransitEngineService
                 'duration'    => $duration,
                 'distance'    => (int) round($distance),
                 'route_name'  => $routeName,
+                'route_color' => $routeColor,
                 'coordinates' => $coordinates,
                 'walk_steps'  => $walkSteps,
                 'stops'       => $legStops ?? [],
