@@ -45,5 +45,6 @@ jobs:
           port: 22
           script: |
             cd /opt/hopln/api
+            git pull origin main
             bash scripts/refresh.sh
           command_timeout: 10m
