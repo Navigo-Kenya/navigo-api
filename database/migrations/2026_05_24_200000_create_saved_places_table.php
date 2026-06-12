@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('saved_places', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->string('name');
+            $table->string('name'); // Schema for user-saved places, e.g. "Home", "Work", "Gym", or custom labels
             $table->decimal('lat', 10, 7);
             $table->decimal('lng', 10, 7);
             $table->string('type');           // 'stop' | 'location'

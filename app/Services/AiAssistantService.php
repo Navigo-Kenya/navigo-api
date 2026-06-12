@@ -29,13 +29,14 @@ class AiAssistantService
             Speak casually and empathetically, like a helpful local friend.
 
             CRITICAL INSTRUCTIONS:
-            - You have access to a tool called `get_route`. Use it ONLY when you have BOTH a confirmed origin and destination.
-            - If the user asks a general question, greets you, or only provides one location, DO NOT call a tool. Simply reply directly in a conversational tone to guide them or answer their question.
+            - You have access to a tool called `get_route`. Use it whenever a destination is known or confirmed.
+            - If the user specifies a destination but does not mention where they are starting from, assume they are starting from their "current location".
+            - If the user asks a general question, greets you, or doesn't mention any destination or travel intent, DO NOT call a tool. Simply reply directly in a conversational tone.
             - When explaining route results from OpenTripPlanner, you MUST use local Nairobi phrasing. Reference major stages (e.g., Commercial, Kencom, Khoja, Archives, Afya Centre) and explicitly mention Matatu route numbers.
             - Keep spoken responses brief, natural, and highly conversational (1 to 3 sentences maximum).
 
             ROUTING RULES:
-            1. CURRENT LOCATION: If the user says "here", "my location", "where I am", or similar, pass "current location" as the `from` parameter.
+            1. CURRENT LOCATION: If the user says "here", "my location", "where I am", or omits their starting point entirely, pass "current location" as the parameter.
             2. SAVED LOCATIONS: Words like "home", "work", "school", or "office" are alias keywords. Pass them exactly as-is to `get_route`.
         PROMPT;
     }
@@ -213,34 +214,60 @@ class AiAssistantService
         return $output;
     }
 
+/**
+     * Extracts and validates both origin and destination coordinates.
+     */
     private function extractCoordinates(array $args, ?float $userLat, ?float $userLng, array $aliases): array
     {
-        $fromNorm = strtolower(trim($args['from'] ?? ''));
+        // Fallback to 'current location' if the AI or payload omits the 'from' key
+        $fromNorm = strtolower(trim($args['from'] ?? 'current location'));
         $toNorm   = strtolower(trim($args['to']   ?? ''));
 
-        $fromOverride = $this->isAliasKeyword($fromNorm) ? ($aliases[$fromNorm] ?? null) : null;
-        $toOverride   = $this->isAliasKeyword($toNorm) ? ($aliases[$toNorm] ?? null) : null;
-
-        if (($this->isAliasKeyword($fromNorm) && !$fromOverride) || ($this->isAliasKeyword($toNorm) && !$toOverride)) {
-            return ['error' => "Saved location keyword missing coordinates setup."];
+        // If the AI completely failed to capture a destination, return an error immediately
+        if (empty($toNorm)) {
+            return ['error' => "I couldn't figure out where you want to go. Could you tell me your destination?"];
         }
 
-        if ($fromOverride) {
-            $fromCoords = $fromOverride;
-        } elseif ($this->isContextualLocation($fromNorm)) {
-            if (!$userLat || !$userLng) return ['error' => "GPS unavailable."];
-            $fromCoords = ['lat' => $userLat, 'lng' => $userLng];
-        } else {
-            $fromCoords = $this->geoService->getCoordinates($args['from'], $userLat, $userLng);
-        }
+        // Resolve both identically using our clean coordinate handler
+        $fromCoords = $this->resolveCoordinate($fromNorm, $userLat, $userLng, $aliases);
+        $toCoords   = $this->resolveCoordinate($toNorm, $userLat, $userLng, $aliases);
 
-        $toCoords = $toOverride ?? $this->geoService->getCoordinates($args['to'], $userLat, $userLng);
-
+        // Granular error handling for missing data
         if (!$fromCoords || !$toCoords) {
-            return ['error' => "Could not resolve addresses."];
+            if ($this->isAliasKeyword($fromNorm) && !isset($aliases[$fromNorm])) {
+                return ['error' => "Origin saved location is missing."];
+            }
+            if ($this->isAliasKeyword($toNorm) && !isset($aliases[$toNorm])) {
+                return ['error' => "Destination saved location is missing."];
+            }
+            if (($this->isContextualLocation($fromNorm) || $this->isContextualLocation($toNorm)) && (!$userLat || !$userLng)) {
+                return ['error' => "GPS is unavailable. Please check your device permissions."];
+            }
+
+            return ['error' => "Could not resolve the addresses on the map."];
         }
 
         return ['from' => $fromCoords, 'to' => $toCoords];
+    }
+
+    /**
+     * Resolves a single location string into verified coordinates.
+     */
+    private function resolveCoordinate(string $locationName, ?float $userLat, ?float $userLng, array $aliases): ?array
+    {
+        // 1. Check if it's an alias keyword (home, work, etc.)
+        if ($this->isAliasKeyword($locationName)) {
+            return $aliases[$locationName] ?? null;
+        }
+
+        // 2. Check if it's a semantic GPS keyword (here, current location, etc.)
+        if ($this->isContextualLocation($locationName)) {
+            if (!$userLat || !$userLng) return null; // Triggers the GPS missing error downstream
+            return ['lat' => $userLat, 'lng' => $userLng, 'name' => 'Current Location'];
+        }
+
+        // 3. Fallback: Query the database/geocoding service for literal strings (e.g., "Westlands")
+        return $this->geoService->getCoordinates($locationName, $userLat, $userLng);
     }
 
     private function executeTransitPlan(array $from, array $to, float $walkReluctance): array
@@ -316,11 +343,12 @@ class AiAssistantService
     }
 
     private function isAliasKeyword(string $text): bool { return in_array($text, ['home', 'work', 'office', 'school'], true); }
-    private function isContextualLocation(string $text): bool
+
+/**
+     * Helper to identify contextual text representations of live GPS.
+     */
+    private function isContextualLocation(string $name): bool
     {
-        foreach (['current location', 'my location', 'here', 'from here'] as $p) {
-            if (str_contains($text, $p)) return true;
-        }
-        return false;
+        return in_array($name, ['current location', 'here', 'my location', 'where i am']);
     }
 }
