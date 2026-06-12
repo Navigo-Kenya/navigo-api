@@ -16,27 +16,20 @@ class AiTransitController extends Controller
         protected AiAssistantService $aiService
     ) {}
 
-    /**
-     * Coordinate conversational routing turns via the AI engine.
-     */
     public function planRouteWithAi(Request $request): JsonResponse
     {
-        // Enforce strict runtime boundary constraints for streaming processing
         set_time_limit(60);
 
-        // Sanitize incoming payloads
         $validated = $request->validate([
             'session_id' => ['nullable', 'string', 'max:255'],
             'text'       => ['nullable', 'string', 'max:1000'],
-            'audio'      => ['nullable', 'file', 'mimes:mp3,wav,m4a,ogg,aac', 'max:10240'], // 10MB Limit
+            'audio'      => ['nullable', 'file', 'mimes:mp3,wav,m4a,ogg,aac', 'max:10240'],
             'lat'        => ['nullable', 'numeric', 'between:-90,90'],
             'lng'        => ['nullable', 'numeric', 'between:-180,180'],
             'aliases'    => ['nullable', 'array'],
         ]);
 
         $sessionId = $validated['session_id'] ?? 'default';
-
-        // Handle multipart form-data or standard string variations uniformly
         $audioFile = $request->hasFile('audio') ? $request->file('audio') : $request->input('audio');
 
         try {
@@ -53,30 +46,16 @@ class AiTransitController extends Controller
                 return response()->json(['error' => 'Could not process your transit request.'], 422);
             }
         } catch (Throwable $e) {
-            Log::error('AI Transit processing failed', [
-                'session_id' => $sessionId,
-                'exception'  => $e->getMessage(),
-            ]);
-
+            Log::error('AI Transit processing failed', ['session_id' => $sessionId, 'exception' => $e->getMessage()]);
             return response()->json(['error' => 'An upstream scheduling error occurred.'], 500);
         }
 
-        Log::info('Conversational turn processed successfully', [
-            'session'   => $sessionId,
-            'has_route' => !empty($result['route']),
-            'has_hold'  => !empty($result['holding_phrase']),
-        ]);
-
-        // Extract transit elements cleanly for asynchronous tracking
-        if (!empty($result['route']) && is_array($result['route'])) {
-            $routeData = $result['route'];
+        // Extract transit elements cleanly for analytics tracking
+        if (!empty($result['routes']) && is_array($result['routes']) && isset($result['routes'][0])) {
+            $routeData = $result['routes'][0];
             $legs = $routeData['legs'] ?? $routeData['segments'] ?? [];
 
-            // Filter out non-transit legs safely
-            $transitLegs = array_values(array_filter($legs, function ($leg) {
-                return isset($leg['mode']) && strtoupper($leg['mode']) !== 'WALK';
-            }));
-
+            $transitLegs = array_values(array_filter($legs, fn ($leg) => isset($leg['mode']) && strtoupper($leg['mode']) !== 'WALK'));
             $totalTransitLegs = count($transitLegs);
 
             if ($totalTransitLegs > 0) {

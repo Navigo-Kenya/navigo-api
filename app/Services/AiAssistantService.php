@@ -5,16 +5,16 @@ namespace App\Services;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
+use App\Models\SavedPlace;
 use Exception;
 
 class AiAssistantService
 {
-    // Define both models for dynamic swapping
     protected string $audioModel = 'gpt-audio-mini';
     protected string $textModel  = 'gpt-4o-mini';
 
-    const SESSION_TTL = 1800; // 30 minutes
-    const ROUTE_CACHE_TTL = 600; // 10 minutes for live transit variations
+    const SESSION_TTL = 1800;
+    const ROUTE_CACHE_TTL = 600;
 
     public function __construct(
         private GeocodingService     $geoService,
@@ -31,13 +31,12 @@ class AiAssistantService
             CRITICAL INSTRUCTIONS:
             - You have access to a tool called `get_route`. Use it whenever a destination is known or confirmed.
             - If the user specifies a destination but does not mention where they are starting from, assume they are starting from their "current location".
-            - If the user asks a general question, greets you, or doesn't mention any destination or travel intent, DO NOT call a tool. Simply reply directly in a conversational tone.
-            - When explaining route results from OpenTripPlanner, you MUST use local Nairobi phrasing. Reference major stages (e.g., Commercial, Kencom, Khoja, Archives, Afya Centre) and explicitly mention Matatu route numbers.
+            - If the user asks a general question or doesn't mention travel intent, DO NOT call a tool. Reply conversationally.
+            - When explaining route results, use local Nairobi phrasing. Reference major stages (e.g., Commercial, Kencom, Khoja) and Matatu route numbers.
             - Keep spoken responses brief, natural, and highly conversational (1 to 3 sentences maximum).
 
             ROUTING RULES:
-            1. CURRENT LOCATION: If the user says "here", "my location", "where I am", or omits their starting point entirely, pass "current location" as the parameter.
-            2. SAVED LOCATIONS: Words like "home", "work", "school", or "office" are alias keywords. Pass them exactly as-is to `get_route`.
+            1. CURRENT LOCATION: If the user says "here", "my location", or omits a start point, pass "current location" as the `from` parameter.
         PROMPT;
     }
 
@@ -52,22 +51,10 @@ class AiAssistantService
                     'parameters'  => [
                         'type'       => 'object',
                         'properties' => [
-                            'from' => [
-                                'type'        => 'string',
-                                'description' => 'Origin location name or "current location"',
-                            ],
-                            'to' => [
-                                'type'        => 'string',
-                                'description' => 'Destination location name',
-                            ],
-                            'holding_phrase' => [
-                                'type'        => 'string',
-                                'description' => 'A short, warm text sentence to show the user while the route loads (e.g., "Checking matatus from Westlands to Kencom...").',
-                            ],
-                            'walkReluctance' => [
-                                'type'        => 'number',
-                                'description' => 'Walk reluctance factor (default 13.5). Increase to 20-25 if user mentions heavy bags or minimal walking.',
-                            ],
+                            'from' => ['type' => 'string', 'description' => 'Origin location name or "current location"'],
+                            'to'   => ['type' => 'string', 'description' => 'Destination location name or "current location"'],
+                            'holding_phrase' => ['type' => 'string', 'description' => 'A short, warm text sentence to show the user while the route loads.'],
+                            'walkReluctance' => ['type' => 'number', 'description' => 'Walk reluctance factor.'],
                         ],
                         'required' => ['from', 'to', 'holding_phrase'],
                     ],
@@ -86,35 +73,18 @@ class AiAssistantService
     ): ?array {
 
         $apiKey = config('services.openai.key');
+        if (!$apiKey) throw new Exception("OpenAI API Key is missing.");
 
-        if (!$apiKey) {
-            throw new Exception("OpenAI API Key is missing. Check your .env file.");
-        }
-
-        // Strategy 1: Global Text Response Cache (Bypass OpenAI completely for simple text queries)
         if ($text && empty($audioFile['base64'])) {
             $textCacheKey = 'navigo_text_cache:' . md5(strtolower(trim($text)));
-            if (Cache::has($textCacheKey)) {
-                Log::info('Conversational text cache hit', ['session' => $sessionId]);
-                return Cache::get($textCacheKey);
-            }
+            if (Cache::has($textCacheKey)) return Cache::get($textCacheKey);
         }
 
         $history = Cache::get("kwame:{$sessionId}", []);
+        $hasAudio = !empty($audioFile['base64']);
 
-        if (!empty($audioFile['base64'])) {
-            $userMessage = [
-                'role' => 'user',
-                'content' => [
-                    [
-                        'type' => 'input_audio',
-                        'input_audio' => [
-                            'data'   => $audioFile['base64'],
-                            'format' => 'wav',
-                        ]
-                    ]
-                ]
-            ];
+        if ($hasAudio) {
+            $userMessage = ['role' => 'user', 'content' => [['type' => 'input_audio', 'input_audio' => ['data' => $audioFile['base64'], 'format' => 'wav']]]];
         } else if ($text) {
             $userMessage = ['role' => 'user', 'content' => $text];
         } else {
@@ -122,11 +92,7 @@ class AiAssistantService
         }
 
         $history[] = $userMessage;
-
-        $hasAudio = !empty($audioFile['base64']);
-
-        // Call 1: Intent Extraction or Direct Chat
-        $messages = $this->buildMessages($history, $userLat, $userLng);
+        $messages = $this->buildMessages($history);
         $firstResponse = $this->callAudioChat($messages, $hasAudio);
 
         if (!$firstResponse) return null;
@@ -134,6 +100,7 @@ class AiAssistantService
         $assistantMsg = $firstResponse['choices'][0]['message'];
         $holdingPhrase = null;
         $routes = [];
+        $actionRequired = null;
 
         if (!empty($assistantMsg['tool_calls'])) {
             $toolCall = $assistantMsg['tool_calls'][0];
@@ -142,12 +109,28 @@ class AiAssistantService
                 $args = json_decode($toolCall['function']['arguments'], true) ?? [];
                 $holdingPhrase = $args['holding_phrase'] ?? "Checking routes for you...";
 
-                // Resolve coordinates and check for missing personal aliases
                 $resolvedCoords = $this->extractCoordinates($args, $userLat, $userLng, $aliases);
+
+                // Intercept structural UI Actions (Unresolved locations)
+                if (isset($resolvedCoords['actionRequired'])) {
+                    $actionRequired = $resolvedCoords['actionRequired'];
+                    $transcript = $actionRequired['isAuthenticated']
+                        ? "I couldn't locate '{$actionRequired['unresolvedName']}'. Would you like to select one of your saved places instead?"
+                        : "I couldn't locate '{$actionRequired['unresolvedName']}'. Please sign in to access your custom saved places.";
+
+                    $this->saveLightweightHistory($sessionId, $history, $transcript);
+                    return [
+                        'spoken_response' => $transcript,
+                        'tts_audio'       => null,
+                        'holding_phrase'  => null,
+                        'routes'          => [],
+                        'actionRequired'  => $actionRequired
+                    ];
+                }
+
                 if (isset($resolvedCoords['error'])) {
-                    $toolContent = json_encode(['success' => false, 'reason' => 'unresolved_alias', 'message' => $resolvedCoords['error']]);
+                    $toolContent = json_encode(['success' => false, 'message' => $resolvedCoords['error']]);
                 } else {
-                    // Strategy 2: Geospatial Grid Caching
                     $geoCacheKey = sprintf(
                         "navigo_geo_route:%s:%s",
                         round($resolvedCoords['from']['lat'], 3) . ',' . round($resolvedCoords['from']['lng'], 3),
@@ -155,11 +138,8 @@ class AiAssistantService
                     );
 
                     if (Cache::has($geoCacheKey)) {
-                        Log::info('Geospatial route cache hit (Saved OTP + OpenAI Call 2)', ['session' => $sessionId]);
                         $cachedData = Cache::get($geoCacheKey);
-
                         $this->saveLightweightHistory($sessionId, $history, $cachedData['spoken_response']);
-
                         return [
                             'spoken_response' => $cachedData['spoken_response'],
                             'tts_audio'       => $cachedData['tts_audio'],
@@ -168,7 +148,6 @@ class AiAssistantService
                         ];
                     }
 
-                    // Cache Miss: Query OpenTripPlanner
                     $routes = $this->executeTransitPlan($resolvedCoords['from'], $resolvedCoords['to'], $args['walkReluctance'] ?? 13.5);
                     $toolContent = !empty($routes)
                         ? json_encode(['success' => true, 'routes_found' => count($routes), 'options' => $routes])
@@ -176,14 +155,9 @@ class AiAssistantService
                 }
 
                 $history[] = $assistantMsg;
-                $history[] = [
-                    'role'         => 'tool',
-                    'tool_call_id' => $toolCall['id'],
-                    'content'      => $toolContent,
-                ];
+                $history[] = ['role' => 'tool', 'tool_call_id' => $toolCall['id'], 'content' => $toolContent];
 
-                // Call 2: Generate final vocal summary from OTP data
-                $secondMessages = $this->buildMessages($history, $userLat, $userLng);
+                $secondMessages = $this->buildMessages($history);
                 $secondResponse = $this->callAudioChat($secondMessages, $hasAudio);
                 $finalAssistantMsg = $secondResponse['choices'][0]['message'] ?? [];
             }
@@ -203,100 +177,82 @@ class AiAssistantService
             'routes'          => $routes,
         ];
 
-        if ($text && empty($audioFile['base64']) && empty($routes)) {
-            Cache::put($textCacheKey, $output, self::ROUTE_CACHE_TTL);
-        }
-
-        if (!empty($routes) && isset($geoCacheKey)) {
-            Cache::put($geoCacheKey, $output, self::ROUTE_CACHE_TTL);
-        }
+        if ($text && !$hasAudio && empty($routes)) Cache::put($textCacheKey, $output, self::ROUTE_CACHE_TTL);
+        if (!empty($routes) && isset($geoCacheKey)) Cache::put($geoCacheKey, $output, self::ROUTE_CACHE_TTL);
 
         return $output;
     }
 
-/**
-     * Extracts and validates both origin and destination coordinates.
-     */
     private function extractCoordinates(array $args, ?float $userLat, ?float $userLng, array $aliases): array
     {
-        // Fallback to 'current location' if the AI or payload omits the 'from' key
         $fromNorm = strtolower(trim($args['from'] ?? 'current location'));
         $toNorm   = strtolower(trim($args['to']   ?? ''));
 
-        // If the AI completely failed to capture a destination, return an error immediately
         if (empty($toNorm)) {
             return ['error' => "I couldn't figure out where you want to go. Could you tell me your destination?"];
         }
 
-        // Resolve both identically using our clean coordinate handler
         $fromCoords = $this->resolveCoordinate($fromNorm, $userLat, $userLng, $aliases);
-        $toCoords   = $this->resolveCoordinate($toNorm, $userLat, $userLng, $aliases);
+        if (!$fromCoords) return ['actionRequired' => $this->handleResolutionFailure($fromNorm, 'from')];
 
-        // Granular error handling for missing data
-        if (!$fromCoords || !$toCoords) {
-            if ($this->isAliasKeyword($fromNorm) && !isset($aliases[$fromNorm])) {
-                return ['error' => "Origin saved location is missing."];
-            }
-            if ($this->isAliasKeyword($toNorm) && !isset($aliases[$toNorm])) {
-                return ['error' => "Destination saved location is missing."];
-            }
-            if (($this->isContextualLocation($fromNorm) || $this->isContextualLocation($toNorm)) && (!$userLat || !$userLng)) {
-                return ['error' => "GPS is unavailable. Please check your device permissions."];
-            }
-
-            return ['error' => "Could not resolve the addresses on the map."];
-        }
+        $toCoords = $this->resolveCoordinate($toNorm, $userLat, $userLng, $aliases);
+        if (!$toCoords) return ['actionRequired' => $this->handleResolutionFailure($toNorm, 'to')];
 
         return ['from' => $fromCoords, 'to' => $toCoords];
     }
 
-    /**
-     * Resolves a single location string into verified coordinates.
-     */
     private function resolveCoordinate(string $locationName, ?float $userLat, ?float $userLng, array $aliases): ?array
     {
-        // 1. Check if it's an alias keyword (home, work, etc.)
-        if ($this->isAliasKeyword($locationName)) {
-            return $aliases[$locationName] ?? null;
+        // Accept dynamic UI alias injection
+        if (array_key_exists($locationName, $aliases)) {
+            return $aliases[$locationName];
         }
 
-        // 2. Check if it's a semantic GPS keyword (here, current location, etc.)
         if ($this->isContextualLocation($locationName)) {
-            if (!$userLat || !$userLng) return null; // Triggers the GPS missing error downstream
+            if (!$userLat || !$userLng) return null;
             return ['lat' => $userLat, 'lng' => $userLng, 'name' => 'Current Location'];
         }
 
-        // 3. Fallback: Query the database/geocoding service for literal strings (e.g., "Westlands")
         return $this->geoService->getCoordinates($locationName, $userLat, $userLng);
+    }
+
+    private function handleResolutionFailure(string $unresolvedName, string $field): array
+    {
+        // Safely check if a Sanctum API token authenticates the current request
+        $user = auth('sanctum')->user();
+        $isAuthenticated = !is_null($user);
+
+        return [
+            'errorType'       => 'unresolved_location',
+            'field'           => $field,
+            'unresolvedName'  => $unresolvedName,
+            'isAuthenticated' => $isAuthenticated,
+            'savedPlaces'     => $isAuthenticated
+                ? SavedPlace::where('user_id', $user->id)->get(['id', 'name', 'lat', 'lng', 'pin', 'category'])->toArray()
+                : []
+        ];
+    }
+
+    private function isContextualLocation(string $name): bool
+    {
+        return in_array($name, ['current location', 'here', 'my location', 'where i am']);
     }
 
     private function executeTransitPlan(array $from, array $to, float $walkReluctance): array
     {
-        return $this->transitEngine->findJourney(
-            (float) $from['lat'],
-            (float) $from['lng'],
-            (float) $to['lat'],
-            (float) $to['lng'],
-            null,
-            null,
-            $walkReluctance
-        );
+        return $this->transitEngine->findJourney((float)$from['lat'], (float)$from['lng'], (float)$to['lat'], (float)$to['lng'], null, null, $walkReluctance);
     }
 
     private function callAudioChat(array $messages, bool $needsAudio = true): ?array
     {
         try {
-            // 1. Dynamically swap models to save costs and prevent 400 errors
-            $targetModel = $needsAudio ? $this->audioModel : $this->textModel;
-
             $payload = [
-                'model'       => $targetModel,
+                'model'       => $needsAudio ? $this->audioModel : $this->textModel,
                 'messages'    => $messages,
                 'tools'       => $this->tools(),
                 'tool_choice' => 'auto',
             ];
 
-            // 2. Only append audio configuration if we are using the audio model
             if ($needsAudio) {
                 $payload['modalities'] = ['text', 'audio'];
                 $payload['audio']      = ['voice' => 'alloy', 'format' => 'wav'];
@@ -308,10 +264,7 @@ class AiAssistantService
                 ->post('https://api.openai.com/v1/chat/completions', $payload);
 
             if (!$response->successful()) {
-                Log::error('OpenAI API Rejected Request', [
-                    'status' => $response->status(),
-                    'body'   => $response->json()
-                ]);
+                Log::error('OpenAI API Rejected Request', ['status' => $response->status(), 'body' => $response->json()]);
                 return null;
             }
 
@@ -322,33 +275,17 @@ class AiAssistantService
         }
     }
 
-    private function buildMessages(array $history, ?float $userLat, ?float $userLng): array
+    private function buildMessages(array $history): array
     {
-        $systemContent = $this->systemPrompt();
-        if ($userLat !== null && $userLng !== null) {
-            $systemContent .= "\n\nUSER GPS: Coordinates ({$userLat}, {$userLng}).";
-        }
-        return array_merge([['role' => 'system', 'content' => $systemContent]], $history);
+        return array_merge([['role' => 'system', 'content' => $this->systemPrompt()]], $history);
     }
 
     private function saveLightweightHistory(string $sessionId, array $history, string $finalTranscript): void
     {
         foreach ($history as &$msg) {
-            if ($msg['role'] === 'user' && is_array($msg['content'])) {
-                $msg['content'] = '[User Audio Input]';
-            }
+            if ($msg['role'] === 'user' && is_array($msg['content'])) $msg['content'] = '[User Audio Input]';
         }
         $history[] = ['role' => 'assistant', 'content' => $finalTranscript];
         Cache::put("kwame:{$sessionId}", array_slice($history, -20), self::SESSION_TTL);
-    }
-
-    private function isAliasKeyword(string $text): bool { return in_array($text, ['home', 'work', 'office', 'school'], true); }
-
-/**
-     * Helper to identify contextual text representations of live GPS.
-     */
-    private function isContextualLocation(string $name): bool
-    {
-        return in_array($name, ['current location', 'here', 'my location', 'where i am']);
     }
 }
