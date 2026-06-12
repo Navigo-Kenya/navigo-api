@@ -71,6 +71,10 @@ class AiAssistantService
         ?float  $userLng   = null,
         array   $aliases   = [],
     ): ?array {
+        // Prevent PHP execution timeout cuts during complex synchronous turn cycles
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(60);
+        }
 
         $apiKey = config('services.openai.key');
         if (!$apiKey) throw new Exception("OpenAI API Key is missing.");
@@ -93,7 +97,7 @@ class AiAssistantService
 
         $history[] = $userMessage;
         $messages = $this->buildMessages($history);
-        $firstResponse = $this->callAudioChat($messages, $hasAudio);
+        $firstResponse = $this->callAudioChat($messages, $hasAudio, true);
 
         if (!$firstResponse) return null;
 
@@ -158,7 +162,9 @@ class AiAssistantService
                 $history[] = ['role' => 'tool', 'tool_call_id' => $toolCall['id'], 'content' => $toolContent];
 
                 $secondMessages = $this->buildMessages($history);
-                $secondResponse = $this->callAudioChat($secondMessages, $hasAudio);
+
+                // OPTIMIZATION: Set third parameter to false to exclude tools scheme on final turn response generation
+                $secondResponse = $this->callAudioChat($secondMessages, $hasAudio, false);
                 $finalAssistantMsg = $secondResponse['choices'][0]['message'] ?? [];
             }
         } else {
@@ -203,16 +209,37 @@ class AiAssistantService
 
     private function resolveCoordinate(string $locationName, ?float $userLat, ?float $userLng, array $aliases): ?array
     {
-        // Accept dynamic UI alias injection
+        // 1. Accept dynamic UI alias injection
         if (array_key_exists($locationName, $aliases)) {
             return $aliases[$locationName];
         }
 
+        // 2. Handle contextual keywords
         if ($this->isContextualLocation($locationName)) {
             if (!$userLat || !$userLng) return null;
             return ['lat' => $userLat, 'lng' => $userLng, 'name' => 'Current Location'];
         }
 
+        // 3. PRIORITIZATION FIX: Intercept matching records inside the user's saved entries
+        $user = auth('sanctum')->user();
+        if ($user) {
+            $savedPlace = SavedPlace::where('user_id', $user->id)
+                ->where(function ($query) use ($locationName) {
+                    $query->where('name', 'LIKE', $locationName)
+                          ->orWhere('category', 'LIKE', $locationName);
+                })
+                ->first();
+
+            if ($savedPlace) {
+                return [
+                    'lat'  => (float)$savedPlace->lat,
+                    'lng'  => (float)$savedPlace->lng,
+                    'name' => $savedPlace->name,
+                ];
+            }
+        }
+
+        // 4. Fallback to general geocoding service
         return $this->geoService->getCoordinates($locationName, $userLat, $userLng);
     }
 
@@ -243,15 +270,18 @@ class AiAssistantService
         return $this->transitEngine->findJourney((float)$from['lat'], (float)$from['lng'], (float)$to['lat'], (float)$to['lng'], null, null, $walkReluctance);
     }
 
-    private function callAudioChat(array $messages, bool $needsAudio = true): ?array
+    private function callAudioChat(array $messages, bool $needsAudio = true, bool $includeTools = true): ?array
     {
         try {
             $payload = [
-                'model'       => $needsAudio ? $this->audioModel : $this->textModel,
-                'messages'    => $messages,
-                'tools'       => $this->tools(),
-                'tool_choice' => 'auto',
+                'model'    => $needsAudio ? $this->audioModel : $this->textModel,
+                'messages' => $messages,
             ];
+
+            if ($includeTools) {
+                $payload['tools']       = $this->tools();
+                $payload['tool_choice'] = 'auto';
+            }
 
             if ($needsAudio) {
                 $payload['modalities'] = ['text', 'audio'];
