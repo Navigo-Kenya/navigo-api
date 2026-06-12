@@ -119,9 +119,11 @@ class AiAssistantService
 
         $history[] = $userMessage;
 
+        $hasAudio = !empty($audioFile['base64']);
+
         // Call 1: Intent Extraction or Direct Chat
         $messages = $this->buildMessages($history, $userLat, $userLng);
-        $firstResponse = $this->callAudioChat($messages);
+        $firstResponse = $this->callAudioChat($messages, $hasAudio);
 
         if (!$firstResponse) return null;
 
@@ -181,7 +183,7 @@ class AiAssistantService
 
                 // Call 2: Generate final vocal summary from OTP data
                 $secondMessages = $this->buildMessages($history, $userLat, $userLng);
-                $secondResponse = $this->callAudioChat($secondMessages);
+                $secondResponse = $this->callAudioChat($secondMessages, $hasAudio);
                 $finalAssistantMsg = $secondResponse['choices'][0]['message'] ?? [];
             }
         } else {
@@ -256,22 +258,33 @@ class AiAssistantService
         );
     }
 
-    private function callAudioChat(array $messages): ?array
+    // 1. Update the signature to accept $needsAudio
+    private function callAudioChat(array $messages, bool $needsAudio = true): ?array
     {
         try {
+            // 2. Dynamically set the modality
+            $payload = [
+                'model'       => $this->model,
+                'modalities'  => $needsAudio ? ['text', 'audio'] : ['text'],
+                'messages'    => $messages,
+                'tools'       => $this->tools(),
+                'tool_choice' => 'auto',
+            ];
+
+            // 3. Only attach the voice format requirements if audio is requested
+            if ($needsAudio) {
+                $payload['audio'] = ['voice' => 'alloy', 'format' => 'wav'];
+            }
+
             $response = Http::withToken(config('services.openai.key'))
                 ->timeout(45)
-                ->post('https://api.openai.com/v1/chat/completions', [
-                    'model'       => $this->model,
-                    'modalities'  => ['text', 'audio'],
-                    'audio'       => ['voice' => 'alloy', 'format' => 'wav'],
-                    'messages'    => $messages,
-                    'tools'       => $this->tools(),
-                    'tool_choice' => 'auto',
-                ]);
+                ->post('https://api.openai.com/v1/chat/completions', $payload);
 
             if (!$response->successful()) {
-                Log::error('OpenAI API Rejected Request', ['status' => $response->status(), 'body' => $response->json()]);
+                Log::error('OpenAI API Rejected Request', [
+                    'status' => $response->status(),
+                    'body'   => $response->json()
+                ]);
                 return null;
             }
 
