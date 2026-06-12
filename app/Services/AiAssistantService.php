@@ -127,7 +127,7 @@ class AiAssistantService
 
         $assistantMsg = $firstResponse['choices'][0]['message'];
         $holdingPhrase = null;
-        $route = null;
+        $routes = []; // Changed to plural
 
         if (!empty($assistantMsg['tool_calls'])) {
             $toolCall = $assistantMsg['tool_calls'][0];
@@ -160,14 +160,15 @@ class AiAssistantService
                             'spoken_response' => $cachedData['spoken_response'],
                             'tts_audio'       => $cachedData['tts_audio'],
                             'holding_phrase'  => $holdingPhrase,
-                            'route'           => $cachedData['route'],
+                            'routes'           => $cachedData['routes'] ?? [], // Changed to plural
                         ];
                     }
 
                     // Cache Miss: Query OpenTripPlanner
-                    $route = $this->executeTransitPlan($resolvedCoords['from'], $resolvedCoords['to'], $args['walkReluctance'] ?? 13.5);
-                    $toolContent = $route
-                        ? json_encode(['success' => true, 'summary' => $route['summary'], 'duration_seconds' => $route['total_duration'], 'legs' => $route['legs'] ?? []])
+                    // Request ALL itineraries
+                    $routes = $this->executeTransitPlan($resolvedCoords['from'], $resolvedCoords['to'], $args['walkReluctance'] ?? 13.5);
+                    $toolContent = !empty($routes)
+                        ? json_encode(['success' => true, 'routes_found' => count($routes), 'options' => $routes])
                         : json_encode(['success' => false, 'message' => 'No transit routes found right now.']);
                 }
 
@@ -196,15 +197,15 @@ class AiAssistantService
             'spoken_response' => $transcript,
             'tts_audio'       => $audioData,
             'holding_phrase'  => $holdingPhrase,
-            'route'           => $route,
+            'routes'           => $routes,
         ];
 
         // Store into structural caches for future reuse
-        if ($text && empty($audioFile['base64']) && empty($route)) {
+        if ($text && empty($audioFile['base64']) && empty($routes)) {
             Cache::put($textCacheKey, $output, self::ROUTE_CACHE_TTL);
         }
 
-        if (!empty($route) && isset($geoCacheKey)) {
+        if (!empty($routes) && isset($geoCacheKey)) {
             Cache::put($geoCacheKey, $output, self::ROUTE_CACHE_TTL);
         }
 
@@ -241,9 +242,10 @@ class AiAssistantService
         return ['from' => $fromCoords, 'to' => $toCoords];
     }
 
-    private function executeTransitPlan(array $from, array $to, float $walkReluctance): ?array
+    private function executeTransitPlan(array $from, array $to, float $walkReluctance): array
     {
-        $routes = $this->transitEngine->findJourney(
+        // Return the full array of routes instead of just the first one
+        return $this->transitEngine->findJourney(
             (float) $from['lat'],
             (float) $from['lng'],
             (float) $to['lat'],
@@ -252,15 +254,12 @@ class AiAssistantService
             null,
             $walkReluctance
         );
-
-        return $routes[0] ?? null;
     }
 
     private function callAudioChat(array $messages): ?array
     {
         try {
-            $response = Http::withoutVerifying()
-                ->withToken(config('services.openai.key'))
+            $response = Http::withToken(config('services.openai.key'))
                 ->timeout(45)
                 ->post('https://api.openai.com/v1/chat/completions', [
                     'model'       => $this->model,
@@ -271,12 +270,8 @@ class AiAssistantService
                     'tool_choice' => 'auto',
                 ]);
 
-            // CRITICAL: Stop silently swallowing errors!
             if (!$response->successful()) {
-                Log::error('OpenAI API Rejected Request', [
-                    'status' => $response->status(),
-                    'body'   => $response->json()
-                ]);
+                Log::error('OpenAI API Rejected Request', ['status' => $response->status(), 'body' => $response->json()]);
                 return null;
             }
 
