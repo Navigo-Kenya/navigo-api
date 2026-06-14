@@ -30,27 +30,28 @@ class ReportController extends Controller
 
     /**
      * Store a new crowdsourced report and broadcast it.
+     * Route is public — user_id is nullable so guests can also report.
      */
     public function store(StoreTransitReportRequest $request): JsonResponse
     {
-        $data = $request->validated();
-        $data['user_id'] = $request->user()->id; // Tag the report to the user
+        try {
+            $data = $request->validated();
+            $data['user_id'] = $request->user()?->id; // null-safe: route is public
 
-        // Create the record via the service we built earlier
-        $report = $this->reportService->createReport($data);
+            $report = $this->reportService->createReport($data);
 
-        // Attach the lat/lng coordinates to the model instance for the Event broadcaster
-        $report->lat = $data['lat'];
-        $report->lng = $data['lng'];
+            // Attach coordinates for the WebSocket broadcaster (not persisted here)
+            $report->lat = $data['lat'];
+            $report->lng = $data['lng'];
 
-        // Fire the WebSocket event instantly
-        event(new TransitReportCreated($report));
+            event(new TransitReportCreated($report));
 
-        return response()->json([
-            'message' => 'Report broadcasted successfully',
-            'data'    => [
-                'id' => $report->id,
-            ]
-        ], 201);
+            return response()->json([
+                'message' => 'Report broadcasted successfully',
+                'data'    => ['id' => $report->id],
+            ], 201);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Failed to submit report.'], 500);
+        }
     }
 }
