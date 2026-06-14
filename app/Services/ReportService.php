@@ -15,8 +15,9 @@ class ReportService
     {
         $envelope = "ST_MakeEnvelope(?, ?, ?, ?, 4326)";
 
-        return TransitReport::select('id', 'type', 'upvotes', 'downvotes', 'created_at', 'expires_at')
+        return TransitReport::select('id', 'type', 'user_id', 'upvotes', 'downvotes', 'created_at', 'expires_at')
             ->selectRaw("ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng")
+            ->with('user:id,name,points')
             ->whereRaw("location::geometry && $envelope", [$west, $south, $east, $north])
             ->where('status', 'active')
             ->where('expires_at', '>', now())
@@ -31,8 +32,21 @@ class ReportService
                 'downvotes'  => $r->downvotes,
                 'created_at' => $r->created_at->toIso8601String(),
                 'expires_at' => $r->expires_at->toIso8601String(),
+                'reporter'   => $r->user ? [
+                    'name'  => $this->formatReporterName($r->user->name),
+                    'level' => $r->user->levelLabel(),
+                ] : null,
             ])
             ->all();
+    }
+
+    private function formatReporterName(string $name): string
+    {
+        $parts = preg_split('/\s+/', trim($name), 2);
+        if (count($parts) === 2 && mb_strlen($parts[1]) > 0) {
+            return $parts[0] . ' ' . mb_strtoupper(mb_substr($parts[1], 0, 1)) . '.';
+        }
+        return $parts[0];
     }
 
     /**
@@ -67,9 +81,10 @@ class ReportService
 
         $ttlMinutes = match ($data['type']) {
             'accident', 'flooded_route' => 120,
-            'police_check'              => 90,
-            'stage_queue'               => 45,
-            default                     => 60,
+            'road_blocked', 'police_check' => 90,
+            'traffic_jam', 'stage_queue'   => 45,
+            'security'                     => 30, // volatile situation
+            default                        => 60,
         };
 
         return TransitReport::create([

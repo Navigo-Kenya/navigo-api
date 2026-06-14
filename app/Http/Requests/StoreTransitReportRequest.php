@@ -16,7 +16,7 @@ class StoreTransitReportRequest extends FormRequest
         return [
             'lat'  => ['required', 'numeric', 'between:-90,90'],
             'lng'  => ['required', 'numeric', 'between:-180,180'],
-            'type' => ['required', 'string', 'in:stage_queue,accident,police_check,flooded_route,fare_hike'],
+            'type' => ['required', 'string', 'in:stage_queue,accident,police_check,flooded_route,fare_hike,traffic_jam,road_blocked,breakdown,security'],
         ];
     }
 }
