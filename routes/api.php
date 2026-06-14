@@ -107,6 +107,7 @@ Route::prefix('v1')->group(function () {
 
     
     // ── Map reports (public) ───────────────────────────────────────
-    Route::get('/reports/viewport', [ReportController::class, 'viewport']);
-    Route::post('/reports',         [ReportController::class, 'store']);
+    Route::get('/reports/viewport',    [ReportController::class, 'viewport']);
+    Route::post('/reports',            [ReportController::class, 'store']);
+    Route::post('/reports/{id}/vote',  [ReportController::class, 'vote']);
 });
