@@ -107,7 +107,7 @@ Route::prefix('v1')->group(function () {
     // ── Public GTFS-RT feeds ───────────────────────────────────────
     Route::get('gtfs-rt/alerts', [ConsoleAlertsController::class, 'gtfsRtFeed']);
 
-    
+
     // ── Map reports (public) ───────────────────────────────────────
     Route::get('/reports/viewport',    [ReportController::class, 'viewport']);
     Route::post('/reports',            [ReportController::class, 'store']);
@@ -147,7 +147,7 @@ Route::prefix('v1')->group(function () {
                     'username' => $username,
                     'to'       => $to,
                     'message'  => 'Navigo SMS test. If you received this, AT is working.',
-                    'from'     => $senderId,
+                    // 'from'     => $senderId,
                 ],
             ]);
 
