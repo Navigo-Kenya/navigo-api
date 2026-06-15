@@ -119,7 +119,7 @@ Route::prefix('v1')->group(function () {
         $apiKey   = config('services.africastalking.api_key', '');
         $username = config('services.africastalking.username', '');
         $senderId = config('services.africastalking.sender_id', 'HOPLN');
-        $to       = '+254745908026';
+        $to       = '+254712345678';
 
         $config = [
             'sandbox'   => $sandbox,
