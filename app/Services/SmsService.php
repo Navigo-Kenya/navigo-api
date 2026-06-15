@@ -18,7 +18,7 @@ class SmsService
         $this->sandbox  = (bool) config('services.africastalking.sandbox');
         $this->apiKey   = config('services.africastalking.api_key', '');
         $this->username = config('services.africastalking.username', 'sandbox');
-        $this->senderId = config('services.africastalking.sender_id', 'Navigo');
+        $this->senderId = config('services.africastalking.sender_id', '');
 
         $baseUri = $this->sandbox
             ? 'https://api.sandbox.africastalking.com/'
@@ -45,7 +45,7 @@ class SmsService
                     'username' => $this->username,
                     'to'       => $to,
                     'message'  => $message,
-                    'from'     => $this->senderId,
+                    // 'from'     => $this->senderId, // Optional: set a sender ID if configured in AfricasTalking account
                 ],
             ]);
 
