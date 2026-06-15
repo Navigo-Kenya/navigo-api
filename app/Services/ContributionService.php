@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Badge;
 use App\Models\Contribution;
+use App\Models\TransitReport;
 use App\Models\User;
 use App\Models\UserBadge;
 use Illuminate\Support\Facades\DB;
@@ -112,8 +113,11 @@ class ContributionService
         $contributions = Contribution::where('user_id', $user->id)->get();
 
         $byType         = $contributions->groupBy('type')->map->count();
-        $approvedByType = $contributions->filter(fn ($c) => in_array($c->status, ['approved', 'auto_approved']))
+        $approvedByType = $contributions->filter(fn ($c) => \in_array($c->status, ['approved', 'auto_approved']))
                                         ->groupBy('type')->map->count();
+
+        $reports      = TransitReport::where('user_id', $user->id)->get();
+        $reportByType = $reports->groupBy('type')->map->count();
 
         $user->refresh();
 
@@ -122,6 +126,8 @@ class ContributionService
             'by_type'          => $byType->toArray(),
             'approved_by_type' => $approvedByType->toArray(),
             'points'           => $user->points,
+            'report_total'     => $reports->count(),
+            'report_by_type'   => $reportByType->toArray(),
         ];
     }
 
@@ -132,6 +138,9 @@ class ContributionService
             'points'              => $stats['points'] >= $badge->requirement_value,
             'type_count'          => ($stats['by_type'][$badge->requirement_meta['type'] ?? ''] ?? 0) >= $badge->requirement_value,
             'approved_type_count' => ($stats['approved_by_type'][$badge->requirement_meta['type'] ?? ''] ?? 0) >= $badge->requirement_value,
+            // Incident report badges
+            'report_count'        => ($stats['report_total'] ?? 0) >= $badge->requirement_value,
+            'report_type_count'   => ($stats['report_by_type'][$badge->requirement_meta['type'] ?? ''] ?? 0) >= $badge->requirement_value,
             default               => false,
         };
     }

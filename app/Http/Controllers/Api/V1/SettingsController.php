@@ -24,8 +24,9 @@ class SettingsController extends Controller
             'app_news'         => false,
         ],
         'privacy' => [
-            'two_fa'    => false,
-            'analytics' => true,
+            'two_fa'             => false,
+            'analytics'          => true,
+            'anonymous_reports'  => false,
         ],
     ];
 
@@ -54,6 +55,7 @@ class SettingsController extends Controller
             'privacy'                        => 'sometimes|array',
             'privacy.two_fa'                 => 'sometimes|boolean',
             'privacy.analytics'              => 'sometimes|boolean',
+            'privacy.anonymous_reports'      => 'sometimes|boolean',
         ]);
 
         $user    = $request->user();

@@ -17,16 +17,18 @@ class TransitReport extends Model
 
     protected $fillable = [
         'user_id',
+        'is_anonymous',
         'type',
         'location', // Note: inserted via raw DB query in the service
         'upvotes',
         'downvotes',
         'status',
-        'expires_at'
+        'expires_at',
     ];
 
     protected $casts = [
-        'expires_at' => 'datetime',
+        'expires_at'   => 'datetime',
+        'is_anonymous' => 'boolean',
     ];
 
     /**

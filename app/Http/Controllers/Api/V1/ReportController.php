@@ -37,10 +37,15 @@ class ReportController extends Controller
     public function store(StoreTransitReportRequest $request): JsonResponse
     {
         try {
-            $data             = $request->validated();
-            $data['user_id']  = $request->user()?->id;
+            $data        = $request->validated();
+            $authUser    = $request->user();
+            $data['user_id']      = $authUser?->id;
+            $data['is_anonymous'] = $authUser
+                ? ($authUser->settings['privacy']['anonymous_reports'] ?? false)
+                : false;
 
-            $report = $this->reportService->createReport($data);
+            $result = $this->reportService->createReport($data);
+            $report = $result['report'];
 
             $report->lat = $data['lat'];
             $report->lng = $data['lng'];
@@ -49,7 +54,11 @@ class ReportController extends Controller
 
             return response()->json([
                 'message' => 'Report broadcasted successfully',
-                'data'    => ['id' => $report->id],
+                'data'    => [
+                    'id'             => $report->id,
+                    'points_awarded' => $result['points_awarded'],
+                    'new_badges'     => $result['new_badges'],
+                ],
             ], 201);
         } catch (\RuntimeException $e) {
             if ($e->getMessage() === 'duplicate') {
