@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\V1\RouteController;
 use App\Http\Controllers\Api\V1\SavedJourneysController;
 use App\Http\Controllers\Api\V1\SavedPlacesController;
 use App\Http\Controllers\Api\V1\SettingsController;
+use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -111,4 +112,65 @@ Route::prefix('v1')->group(function () {
     Route::get('/reports/viewport',    [ReportController::class, 'viewport']);
     Route::post('/reports',            [ReportController::class, 'store']);
     Route::post('/reports/{id}/vote',  [ReportController::class, 'vote']);
+
+    // ── [DEBUG] SMS test — REMOVE before going live ────────────────
+    Route::get('/debug/sms', function () {
+        $sandbox  = (bool) config('services.africastalking.sandbox');
+        $apiKey   = config('services.africastalking.api_key', '');
+        $username = config('services.africastalking.username', '');
+        $senderId = config('services.africastalking.sender_id', 'HOPLN');
+        $to       = '+254745908026';
+
+        $config = [
+            'sandbox'   => $sandbox,
+            'username'  => $username,
+            'sender_id' => $senderId,
+            'api_key'   => empty($apiKey) ? '(empty)' : substr($apiKey, 0, 8) . '...',
+            'base_url'  => $sandbox
+                ? 'https://api.sandbox.africastalking.com/'
+                : 'https://api.africastalking.com/',
+        ];
+
+        if (empty($apiKey)) {
+            return response()->json(['error' => 'API key is empty — check AT_API_KEY in .env', 'config' => $config], 500);
+        }
+
+        try {
+            $client   = new Client(['base_uri' => $config['base_url']]);
+            $response = $client->post('version1/messaging', [
+                'headers' => [
+                    'apiKey'       => $apiKey,
+                    'Accept'       => 'application/json',
+                    'Content-Type' => 'application/x-www-form-urlencoded',
+                ],
+                'form_params' => [
+                    'username' => $username,
+                    'to'       => $to,
+                    'message'  => 'Navigo SMS test. If you received this, AT is working.',
+                    'from'     => $senderId,
+                ],
+            ]);
+
+            $body = json_decode($response->getBody()->getContents(), true);
+
+            return response()->json([
+                'http_status' => $response->getStatusCode(),
+                'at_response' => $body,
+                'config'      => $config,
+            ]);
+
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            return response()->json([
+                'error'       => 'HTTP client error',
+                'http_status' => $e->getResponse()->getStatusCode(),
+                'at_response' => json_decode($e->getResponse()->getBody()->getContents(), true),
+                'config'      => $config,
+            ], 502);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'error'  => $e->getMessage(),
+                'config' => $config,
+            ], 500);
+        }
+    });
 });
