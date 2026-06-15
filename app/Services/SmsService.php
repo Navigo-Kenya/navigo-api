@@ -11,20 +11,26 @@ class SmsService
     private string $apiKey;
     private string $username;
     private string $senderId;
+    private bool $sandbox;
 
     public function __construct()
     {
-        $this->client   = new Client(['base_uri' => 'https://api.africastalking.com/']);
+        $this->sandbox  = (bool) config('services.africastalking.sandbox');
         $this->apiKey   = config('services.africastalking.api_key', '');
-        $this->username = config('services.africastalking.username', '');
+        $this->username = config('services.africastalking.username', 'sandbox');
         $this->senderId = config('services.africastalking.sender_id', 'Navigo');
+
+        $baseUri = $this->sandbox
+            ? 'https://api.sandbox.africastalking.com/'
+            : 'https://api.africastalking.com/';
+
+        $this->client = new Client(['base_uri' => $baseUri]);
     }
 
     public function send(string $to, string $message): bool
     {
-        // Sandbox mode: explicit flag OR no API key configured
-        if (config('services.africastalking.sandbox') || empty($this->apiKey)) {
-            Log::info('SMS (sandbox)', ['to' => $to, 'message' => $message]);
+        if (empty($this->apiKey)) {
+            Log::info('SMS skipped (no API key configured)', ['to' => $to]);
             return true;
         }
 
@@ -32,8 +38,8 @@ class SmsService
             $response = $this->client->post('version1/messaging', [
                 'headers' => [
                     'apiKey'       => $this->apiKey,
-                    'Content-Type' => 'application/x-www-form-urlencoded',
                     'Accept'       => 'application/json',
+                    'Content-Type' => 'application/x-www-form-urlencoded',
                 ],
                 'form_params' => [
                     'username' => $this->username,
@@ -43,14 +49,23 @@ class SmsService
                 ],
             ]);
 
-            $body = json_decode($response->getBody()->getContents(), true);
-            $status = $body['SMSMessageData']['Recipients'][0]['status'] ?? 'Unknown';
+            $body      = json_decode($response->getBody()->getContents(), true);
+            $recipient = $body['SMSMessageData']['Recipients'][0] ?? [];
+            $status    = $recipient['status'] ?? 'Unknown';
+            $code      = $recipient['statusCode'] ?? null;
 
-            if ($status === 'Success') {
+            // AT success statusCode is 101
+            if ($code === 101 || $status === 'Success') {
+                Log::info('SMS sent', ['to' => $to, 'sandbox' => $this->sandbox]);
                 return true;
             }
 
-            Log::warning('SMS delivery failed', ['to' => $to, 'status' => $status]);
+            Log::warning('SMS delivery failed', [
+                'to'         => $to,
+                'status'     => $status,
+                'statusCode' => $code,
+                'sandbox'    => $this->sandbox,
+            ]);
             return false;
 
         } catch (\Throwable $e) {
