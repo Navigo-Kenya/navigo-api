@@ -83,8 +83,8 @@ class OtpService
     private function buildMessage(string $code, string $type): string
     {
         return match ($type) {
-            'password_reset'      => "Your Hopln password reset code is: {$code}. Valid for 10 minutes.",
-            default               => "Your Hopln verification code is: {$code}. Valid for 10 minutes.",
+            'password_reset'      => "Your Navigo password reset code is: {$code}. Valid for 10 minutes.",
+            default               => "Your Navigo verification code is: {$code}. Valid for 10 minutes.",
         };
     }
 }

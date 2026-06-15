@@ -17,7 +17,7 @@ class SmsService
         $this->client   = new Client(['base_uri' => 'https://api.africastalking.com/']);
         $this->apiKey   = config('services.africastalking.api_key', '');
         $this->username = config('services.africastalking.username', '');
-        $this->senderId = config('services.africastalking.sender_id', 'HOPLN');
+        $this->senderId = config('services.africastalking.sender_id', 'Navigo');
     }
 
     public function send(string $to, string $message): bool

@@ -35,7 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->booted(function () {
-        RateLimiter::for('otp', fn ($r) => Limit::perMinute(1)->by($r->input('phone')));
+        RateLimiter::for('otp', fn ($r) => Limit::perMinute(3)->by($r->input('phone') ?? $r->input('phone_number') ?? $r->ip()));
         RateLimiter::for('auth', fn ($r) => Limit::perMinute(10)->by($r->ip()));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
