@@ -7,10 +7,39 @@ use App\Models\User;
 use App\Services\OtpService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class PhoneController extends Controller
 {
     public function __construct(private OtpService $otp) {}
+
+    // Called by OAuth users who have no phone yet. Stores the number and sends OTP.
+    public function set(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'setup_token'  => 'required|string',
+            'phone_number' => 'required|string|max:20',
+        ]);
+
+        $accessToken = PersonalAccessToken::findToken($data['setup_token']);
+
+        if (!$accessToken || !$accessToken->can('phone:verify') || $accessToken->expires_at?->isPast()) {
+            return response()->json(['message' => 'Invalid or expired setup token.'], 401);
+        }
+
+        /** @var User $user */
+        $user = $accessToken->tokenable;
+
+        if (User::where('phone_number', $data['phone_number'])->where('id', '!=', $user->id)->exists()) {
+            return response()->json(['message' => 'This phone number is already registered.'], 422);
+        }
+
+        $user->update(['phone_number' => $data['phone_number']]);
+        $this->otp->generate($data['phone_number'], 'phone_verification');
+
+        return response()->json(['phone' => $data['phone_number']]);
+    }
 
     public function send(Request $request): JsonResponse
     {

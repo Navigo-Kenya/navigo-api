@@ -27,6 +27,7 @@ Route::prefix('v1')->group(function () {
         Route::post('login',           [AuthController::class, 'login'])->middleware('throttle:auth');
         Route::post('google',          [OAuthController::class, 'google']);
         Route::post('apple',           [OAuthController::class, 'apple']);
+        Route::post('phone/set',       [PhoneController::class, 'set'])->middleware('throttle:otp');
         Route::post('phone/send',      [PhoneController::class, 'send'])->middleware('throttle:otp');
         Route::post('phone/verify',    [PhoneController::class, 'verify']);
         Route::post('password/forgot', [AuthController::class, 'forgotPassword']);

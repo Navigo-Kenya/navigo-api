@@ -16,10 +16,7 @@ class OAuthController extends Controller
 {
     public function google(Request $request): JsonResponse
     {
-        $data = $request->validate([
-            'id_token'     => 'required|string',
-            'phone_number' => 'nullable|string|max:20',
-        ]);
+        $data = $request->validate(['id_token' => 'required|string']);
 
         $response = Http::get('https://oauth2.googleapis.com/tokeninfo', [
             'id_token' => $data['id_token'],
@@ -46,7 +43,6 @@ class OAuthController extends Controller
         $email    = $payload['email'] ?? null;
         $name     = $payload['name'] ?? 'User';
         $avatar   = $payload['picture'] ?? null;
-        $phone    = $data['phone_number'] ?? null;
 
         if (!$googleId) {
             return response()->json(['message' => 'Invalid Google token payload.'], 401);
@@ -60,10 +56,6 @@ class OAuthController extends Controller
             if ($avatar && !$this->isCustomAvatar($user->avatar)) {
                 $updateData['avatar'] = $avatar;
             }
-            // Only store phone if the user doesn't already have one
-            if ($phone && !$user->phone_number) {
-                $updateData['phone_number'] = $phone;
-            }
             $user->update($updateData);
         } else {
             $user = User::create([
@@ -73,7 +65,6 @@ class OAuthController extends Controller
                 'google_id'      => $googleId,
                 'oauth_provider' => 'google',
                 'avatar'         => $avatar,
-                'phone_number'   => $phone,
             ]);
         }
 
@@ -87,7 +78,6 @@ class OAuthController extends Controller
             'user'           => 'nullable|array',
             'user.name'      => 'nullable|string',
             'user.email'     => 'nullable|email',
-            'phone_number'   => 'nullable|string|max:20',
         ]);
 
         $payload = $this->verifyAppleToken($data['identity_token']);
@@ -99,7 +89,6 @@ class OAuthController extends Controller
         $appleId = $payload->sub ?? null;
         $email   = $payload->email ?? ($data['user']['email'] ?? null);
         $name    = $data['user']['name'] ?? 'User';
-        $phone   = $data['phone_number'] ?? null;
 
         if (!$appleId) {
             return response()->json(['message' => 'Invalid Apple token payload.'], 401);
@@ -109,14 +98,10 @@ class OAuthController extends Controller
             ?? ($email ? User::where('email', $email)->first() : null);
 
         if ($user) {
-            $updateData = array_filter([
+            $user->update(array_filter([
                 'apple_id'       => $appleId,
                 'oauth_provider' => $user->oauth_provider ?? 'apple',
-            ]);
-            if ($phone && !$user->phone_number) {
-                $updateData['phone_number'] = $phone;
-            }
-            $user->update($updateData);
+            ]));
         } else {
             $user = User::create([
                 'name'           => $name,
@@ -124,7 +109,6 @@ class OAuthController extends Controller
                 'password'       => Str::random(32),
                 'apple_id'       => $appleId,
                 'oauth_provider' => 'apple',
-                'phone_number'   => $phone,
             ]);
         }
 
@@ -139,8 +123,7 @@ class OAuthController extends Controller
             return response()->json([
                 'needs_phone' => true,
                 'setup_token' => $setupToken,
-                // Echo back the stored phone so the client can pre-fill the OTP screen
-                'phone'       => $user->phone_number,
+                'phone'       => $user->phone_number, // pre-fills screen if user already has one
             ], 200);
         }
 
