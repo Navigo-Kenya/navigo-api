@@ -38,7 +38,10 @@ class ReportController extends Controller
     {
         try {
             $data        = $request->validated();
-            $authUser    = $request->user();
+            // This route is public (guests can report), so $request->user() returns
+            // null even when a Sanctum Bearer token is present — it falls through to
+            // the session guard. auth('sanctum')->user() resolves the token explicitly.
+            $authUser    = auth('sanctum')->user();
             $data['user_id']      = $authUser?->id;
             $data['is_anonymous'] = $authUser
                 ? ($authUser->settings['privacy']['anonymous_reports'] ?? false)
@@ -89,7 +92,7 @@ class ReportController extends Controller
             $counts = $this->reportService->voteReport(
                 $report,
                 $request->string('vote')->value(),
-                $request->user()?->id,
+                auth('sanctum')->user()?->id,
                 $ipHash
             );
 
