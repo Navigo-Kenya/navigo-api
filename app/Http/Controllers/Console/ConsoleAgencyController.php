@@ -20,15 +20,16 @@ class ConsoleAgencyController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'agency_id'       => 'required|string|unique:agencies,agency_id',
-            'agency_name'     => 'required|string|max:200',
-            'agency_url'      => 'required|string|url|max:255',
-            'agency_timezone' => 'required|string|max:50',
-            'agency_lang'     => 'nullable|string|max:10',
-            'agency_phone'    => 'nullable|string|max:50',
-            'agency_email'    => 'nullable|email|max:200',
-            'reg_number'      => 'nullable|string|max:50',
-            'region'          => 'nullable|string|max:100',
+            'agency_id'         => 'required|string|unique:agencies,agency_id',
+            'agency_name'       => 'required|string|max:200',
+            'agency_url'        => 'required|string|url|max:255',
+            'agency_timezone'   => 'required|string|max:50',
+            'agency_lang'       => 'nullable|string|max:10',
+            'agency_phone'      => 'nullable|string|max:50',
+            'agency_email'      => 'nullable|email|max:200',
+            'type'              => 'nullable|string|in:authority,operator',
+            'reg_number'        => 'nullable|string|max:50',
+            'region'            => 'nullable|string|max:100',
             'terminus_location' => 'nullable|string',
         ]);
 
@@ -55,6 +56,7 @@ class ConsoleAgencyController extends Controller
             'agency_phone'      => 'nullable|string|max:50',
             'agency_email'      => 'nullable|email|max:200',
             'logo_url'          => 'nullable|string',
+            'type'              => 'nullable|string|in:authority,operator',
             'reg_number'        => 'nullable|string|max:50',
             'region'            => 'nullable|string|max:100',
             'terminus_location' => 'nullable|string',
@@ -83,6 +85,10 @@ class ConsoleAgencyController extends Controller
         $agency = Agency::withCount('routes')->findOrFail($id);
         $this->assertAgencyAllowed($request, $agency->agency_id);
 
+        if ($agency->type === 'authority') {
+            return response()->json(['message' => 'Transit authorities are not subject to onboarding.'], 422);
+        }
+
         $steps = [
             'profile_set'       => !empty($agency->reg_number) || !empty($agency->logo_url),
             'routes_added'      => $agency->routes_count > 0,
@@ -104,6 +110,10 @@ class ConsoleAgencyController extends Controller
     {
         $agency = Agency::withCount('routes')->findOrFail($id);
         $this->assertAgencyAllowed($request, $agency->agency_id);
+
+        if ($agency->type === 'authority') {
+            return response()->json(['message' => 'Transit authorities are not subject to onboarding.'], 422);
+        }
 
         if ($agency->onboarding_status === 'active') {
             return response()->json(['message' => 'Onboarding already complete.'], 409);

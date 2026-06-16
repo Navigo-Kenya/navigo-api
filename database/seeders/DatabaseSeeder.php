@@ -24,7 +24,6 @@ class DatabaseSeeder extends Seeder
 
             AgencySeeder::class,
             ServiceCalendarSeeder::class,
-            // GtfsSeeder::class,
             GtfsExcelSeeder::class,
         ]);
 

@@ -14,6 +14,7 @@ class AgencySeeder extends Seeder
                 [
                     'agency_id'       => 'navigo',
                     'agency_name'     => 'Navigo Nairobi',
+                    'type'            => 'authority', // Transit authority overseeing multiple operators
                     'agency_url'      => 'https://navigo.co.ke',
                     'agency_timezone' => 'Africa/Nairobi',
                     'agency_lang'     => 'en',
@@ -24,7 +25,7 @@ class AgencySeeder extends Seeder
                 ],
             ],
             ['agency_id'],
-            ['agency_name', 'agency_url', 'agency_timezone', 'updated_at']
+            ['agency_name', 'type', 'agency_url', 'agency_timezone', 'updated_at']
         );
     }
 }

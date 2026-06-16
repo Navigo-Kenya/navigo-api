@@ -11,9 +11,9 @@ class AdminSeeder extends Seeder
     public function run(): void
     {
         $user = User::updateOrCreate(
-            ['email' => env('ADMIN_EMAIL', 'admin@hopln.app')],
+            ['email' => env('ADMIN_EMAIL', 'admin@hnavigo.co.ke')],
             [
-                'name'             => 'Hopln Admin',
+                'name'             => 'Navigo Admin',
                 'password'         => Hash::make(env('ADMIN_PASSWORD', 'changeme123!')),
                 'role'             => 'superadmin',
                 'phone_verified_at' => now(),
@@ -23,7 +23,7 @@ class AdminSeeder extends Seeder
         // Assign the Spatie superadmin role (syncs permissions automatically)
         $user->syncRoles(['superadmin']);
 
-        $this->command->info('Superadmin created: ' . env('ADMIN_EMAIL', 'admin@hopln.app'));
+        $this->command->info('Superadmin created: ' . env('ADMIN_EMAIL', 'admin@hnavigo.co.ke'));
         $this->command->warn('Change the password immediately: ADMIN_PASSWORD in .env');
     }
 }
