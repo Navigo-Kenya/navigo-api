@@ -145,8 +145,12 @@ class ConsoleStopController extends Controller
         );
     }
 
-    public function destroy(string $id): JsonResponse
+    public function destroy(Request $request, string $id): JsonResponse
     {
+        if ($request->user()->isOperator()) {
+            return response()->json(['message' => 'Operators cannot delete stops.'], 403);
+        }
+
         $stop = Stop::findOrFail($id);
         $stop->delete();
         $this->scheduleOtpSync();

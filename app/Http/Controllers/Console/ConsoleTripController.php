@@ -28,8 +28,19 @@ class ConsoleTripController extends Controller
             $q->where('route_id', $request->input('route_id'));
         }
 
-        if ($request->filled('agency_id')) {
-            $q->whereHas('route', fn ($r) => $r->where('agency_id', $request->agency_id));
+        $scope = $this->agencyScope($request);
+
+        if ($scope !== null) {
+            // Operator-scoped users: only trips whose route is in their operated routes.
+            $q->whereIn('route_id', function ($sub) use ($scope) {
+                $sub->select('route_id')
+                    ->from('route_operators')
+                    ->whereIn('agency_id', $scope);
+            });
+        } else {
+            if ($request->filled('agency_id')) {
+                $q->whereHas('route', fn ($r) => $r->where('agency_id', $request->input('agency_id')));
+            }
         }
 
         if ($request->filled('service_id')) {
@@ -100,8 +111,12 @@ class ConsoleTripController extends Controller
         return response()->json($trip);
     }
 
-    public function destroy(string $id): JsonResponse
+    public function destroy(Request $request, string $id): JsonResponse
     {
+        if ($request->user()->isOperator()) {
+            return response()->json(['message' => 'Operators cannot delete trips.'], 403);
+        }
+
         $trip = Trip::findOrFail($id);
         StopTime::where('trip_id', $trip->trip_id)->delete();
         $trip->delete();

@@ -79,6 +79,10 @@ class ConsoleRouteController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        if ($request->user()->isOperator()) {
+            return response()->json(['message' => 'Operators cannot create routes.'], 403);
+        }
+
         $data = $request->validate([
             'route_id'         => 'required|string|unique:routes,route_id',
             'agency_id'        => 'required|string|exists:agencies,agency_id',
@@ -98,6 +102,10 @@ class ConsoleRouteController extends Controller
 
     public function update(Request $request, string $id): JsonResponse
     {
+        if ($request->user()->isOperator()) {
+            return response()->json(['message' => 'Operators cannot edit routes.'], 403);
+        }
+
         $route = Route::findOrFail($id);
         $this->assertAgencyAllowed($request, $route->agency_id);
 
@@ -142,6 +150,10 @@ class ConsoleRouteController extends Controller
 
     public function destroy(Request $request, string $id): JsonResponse
     {
+        if ($request->user()->isOperator()) {
+            return response()->json(['message' => 'Operators cannot delete routes.'], 403);
+        }
+
         $route = Route::findOrFail($id);
         $this->assertAgencyAllowed($request, $route->agency_id);
 
@@ -184,6 +196,10 @@ class ConsoleRouteController extends Controller
     // Upsert the PostGIS shape for a route
     public function saveShape(Request $request, string $id): JsonResponse
     {
+        if ($request->user()->isOperator()) {
+            return response()->json(['message' => 'Operators cannot edit route shapes.'], 403);
+        }
+
         Route::findOrFail($id);
 
         $data = $request->validate([
@@ -211,6 +227,10 @@ class ConsoleRouteController extends Controller
     // Replace all stop-times for the route's main trip
     public function saveTripStops(Request $request, string $id): JsonResponse
     {
+        if ($request->user()->isOperator()) {
+            return response()->json(['message' => 'Operators cannot edit route stop sequences.'], 403);
+        }
+
         $route = Route::findOrFail($id);
 
         $data = $request->validate([
