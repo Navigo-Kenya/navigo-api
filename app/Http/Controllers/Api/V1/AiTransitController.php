@@ -23,14 +23,16 @@ class AiTransitController extends Controller
         $validated = $request->validate([
             'session_id' => ['nullable', 'string', 'max:255'],
             'text'       => ['nullable', 'string', 'max:1000'],
-            'audio'      => ['nullable', 'file', 'mimes:mp3,wav,m4a,ogg,aac', 'max:10240'],
+            'audio'        => ['nullable', 'array'],
+            'audio.base64' => ['nullable', 'string'],
+            'audio.mime'   => ['nullable', 'string', 'max:50'],
             'lat'        => ['nullable', 'numeric', 'between:-90,90'],
             'lng'        => ['nullable', 'numeric', 'between:-180,180'],
             'aliases'    => ['nullable', 'array'],
         ]);
 
         $sessionId = $validated['session_id'] ?? 'default';
-        $audioFile = $request->hasFile('audio') ? $request->file('audio') : $request->input('audio');
+        $audioFile = $validated['audio'] ?? null;
 
         try {
             $result = $this->aiService->chat(

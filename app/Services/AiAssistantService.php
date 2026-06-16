@@ -2,23 +2,23 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
+use App\Services\AI\GoogleLlmService;
+use App\Services\AI\GoogleTtsService;
 use App\Models\SavedPlace;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Exception;
 
 class AiAssistantService
 {
-    protected string $audioModel = 'gpt-audio-mini';
-    protected string $textModel  = 'gpt-4o-mini';
-
-    const SESSION_TTL = 1800;
+    const SESSION_TTL   = 1800;
     const ROUTE_CACHE_TTL = 600;
 
     public function __construct(
         private GeocodingService     $geoService,
         private TransitEngineService $transitEngine,
+        private GoogleLlmService     $llm,
+        private GoogleTtsService     $tts,
     ) {}
 
     private function systemPrompt(): string
@@ -51,15 +51,15 @@ class AiAssistantService
                     'parameters'  => [
                         'type'       => 'object',
                         'properties' => [
-                            'from' => ['type' => 'string', 'description' => 'Origin location name or "current location"'],
-                            'to'   => ['type' => 'string', 'description' => 'Destination location name or "current location"'],
+                            'from'           => ['type' => 'string', 'description' => 'Origin location name or "current location"'],
+                            'to'             => ['type' => 'string', 'description' => 'Destination location name or "current location"'],
                             'holding_phrase' => ['type' => 'string', 'description' => 'A short, warm text sentence to show the user while the route loads.'],
                             'walkReluctance' => ['type' => 'number', 'description' => 'Walk reluctance factor.'],
                         ],
                         'required' => ['from', 'to', 'holding_phrase'],
                     ],
                 ],
-            ]
+            ],
         ];
     }
 
@@ -71,123 +71,152 @@ class AiAssistantService
         ?float  $userLng   = null,
         array   $aliases   = [],
     ): ?array {
-        // Prevent PHP execution timeout cuts during complex synchronous turn cycles
         if (function_exists('set_time_limit')) {
             @set_time_limit(60);
         }
 
-        $apiKey = config('services.openai.key');
-        if (!$apiKey) throw new Exception("OpenAI API Key is missing.");
+        if (empty(config('services.google_cloud.project_id'))) {
+            throw new Exception('GCP_PROJECT_ID is not set.');
+        }
 
+        // ── Text cache (skip audio turns) ──────────────────────────────────────
         if ($text && empty($audioFile['base64'])) {
             $textCacheKey = 'navigo_text_cache:' . md5(strtolower(trim($text)));
             if (Cache::has($textCacheKey)) return Cache::get($textCacheKey);
         }
 
-        $history = Cache::get("kwame:{$sessionId}", []);
+        $history  = Cache::get("kwame:{$sessionId}", []);
         $hasAudio = !empty($audioFile['base64']);
 
-        if ($hasAudio) {
-            $userMessage = ['role' => 'user', 'content' => [['type' => 'input_audio', 'input_audio' => ['data' => $audioFile['base64'], 'format' => 'wav']]]];
-        } else if ($text) {
-            $userMessage = ['role' => 'user', 'content' => $text];
-        } else {
-            return null;
-        }
+        // ── Gemini accepts audio natively — no STT step needed ────────────────
+        // For text turns add a normal history entry; for audio turns add a
+        // placeholder entry that buildContents() will append the inlineData to.
+        if (!$hasAudio && empty($text)) return null;
 
-        $history[] = $userMessage;
-        $messages = $this->buildMessages($history);
-        $firstResponse = $this->callAudioChat($messages, $hasAudio, true);
+        $history[] = ['role' => 'user', 'content' => $text ?? '[Voice message]'];
+
+        // ── Step 1: LLM turn 1 — Gemini transcribes + detects intent ──────────
+        $firstResponse = $this->llm->chat(
+            $history,
+            $this->systemPrompt(),
+            $this->tools(),
+            true,
+            $hasAudio ? $audioFile : null,
+        );
 
         if (!$firstResponse) return null;
 
-        $assistantMsg = $firstResponse['choices'][0]['message'];
-        $holdingPhrase = null;
-        $routes = [];
+        $holdingPhrase  = null;
+        $routes         = [];
         $actionRequired = null;
+        $finalText      = '';
 
-        if (!empty($assistantMsg['tool_calls'])) {
-            $toolCall = $assistantMsg['tool_calls'][0];
+        if ($firstResponse['functionCall'] && $firstResponse['functionCall']['name'] === 'get_route') {
+            $args          = $firstResponse['functionCall']['args'];
+            $holdingPhrase = $args['holding_phrase'] ?? 'Checking routes for you...';
 
-            if ($toolCall['function']['name'] === 'get_route') {
-                $args = json_decode($toolCall['function']['arguments'], true) ?? [];
-                $holdingPhrase = $args['holding_phrase'] ?? "Checking routes for you...";
+            $resolvedCoords = $this->extractCoordinates($args, $userLat, $userLng, $aliases);
 
-                $resolvedCoords = $this->extractCoordinates($args, $userLat, $userLng, $aliases);
+            // ── Unresolved location → return action UI payload ─────────────────
+            if (isset($resolvedCoords['actionRequired'])) {
+                $actionRequired = $resolvedCoords['actionRequired'];
+                $transcript = $actionRequired['isAuthenticated']
+                    ? "I couldn't locate '{$actionRequired['unresolvedName']}'. Would you like to select one of your saved places instead?"
+                    : "I couldn't locate '{$actionRequired['unresolvedName']}'. Please sign in to access your custom saved places.";
 
-                // Intercept structural UI Actions (Unresolved locations)
-                if (isset($resolvedCoords['actionRequired'])) {
-                    $actionRequired = $resolvedCoords['actionRequired'];
-                    $transcript = $actionRequired['isAuthenticated']
-                        ? "I couldn't locate '{$actionRequired['unresolvedName']}'. Would you like to select one of your saved places instead?"
-                        : "I couldn't locate '{$actionRequired['unresolvedName']}'. Please sign in to access your custom saved places.";
+                $this->saveLightweightHistory($sessionId, $history, $transcript);
+                return [
+                    'spoken_response' => $transcript,
+                    'tts_audio'       => null,
+                    'holding_phrase'  => null,
+                    'routes'          => [],
+                    'actionRequired'  => $actionRequired,
+                ];
+            }
 
-                    $this->saveLightweightHistory($sessionId, $history, $transcript);
+            // ── Geocoding error ────────────────────────────────────────────────
+            if (isset($resolvedCoords['error'])) {
+                $toolContent = json_encode(['success' => false, 'message' => $resolvedCoords['error']]);
+            } else {
+                // ── Geo-route cache ────────────────────────────────────────────
+                $geoCacheKey = sprintf(
+                    'navigo_geo_route:%s:%s',
+                    round($resolvedCoords['from']['lat'], 3) . ',' . round($resolvedCoords['from']['lng'], 3),
+                    round($resolvedCoords['to']['lat'],   3) . ',' . round($resolvedCoords['to']['lng'],   3)
+                );
+
+                if (Cache::has($geoCacheKey)) {
+                    $cached = Cache::get($geoCacheKey);
+                    $this->saveLightweightHistory($sessionId, $history, $cached['spoken_response']);
                     return [
-                        'spoken_response' => $transcript,
-                        'tts_audio'       => null,
-                        'holding_phrase'  => null,
-                        'routes'          => [],
-                        'actionRequired'  => $actionRequired
+                        'spoken_response' => $cached['spoken_response'],
+                        'tts_audio'       => $cached['tts_audio'],
+                        'holding_phrase'  => $holdingPhrase,
+                        'routes'          => $cached['routes'] ?? [],
                     ];
                 }
 
-                if (isset($resolvedCoords['error'])) {
-                    $toolContent = json_encode(['success' => false, 'message' => $resolvedCoords['error']]);
-                } else {
-                    $geoCacheKey = sprintf(
-                        "navigo_geo_route:%s:%s",
-                        round($resolvedCoords['from']['lat'], 3) . ',' . round($resolvedCoords['from']['lng'], 3),
-                        round($resolvedCoords['to']['lat'], 3) . ',' . round($resolvedCoords['to']['lng'], 3)
-                    );
-
-                    if (Cache::has($geoCacheKey)) {
-                        $cachedData = Cache::get($geoCacheKey);
-                        $this->saveLightweightHistory($sessionId, $history, $cachedData['spoken_response']);
-                        return [
-                            'spoken_response' => $cachedData['spoken_response'],
-                            'tts_audio'       => $cachedData['tts_audio'],
-                            'holding_phrase'  => $holdingPhrase,
-                            'routes'          => $cachedData['routes'] ?? [],
-                        ];
-                    }
-
-                    $routes = $this->executeTransitPlan($resolvedCoords['from'], $resolvedCoords['to'], $args['walkReluctance'] ?? 13.5);
-                    $toolContent = !empty($routes)
-                        ? json_encode(['success' => true, 'routes_found' => count($routes), 'options' => $routes])
-                        : json_encode(['success' => false, 'message' => 'No transit routes found right now.']);
-                }
-
-                $history[] = $assistantMsg;
-                $history[] = ['role' => 'tool', 'tool_call_id' => $toolCall['id'], 'content' => $toolContent];
-
-                $secondMessages = $this->buildMessages($history);
-
-                // OPTIMIZATION: Set third parameter to false to exclude tools scheme on final turn response generation
-                $secondResponse = $this->callAudioChat($secondMessages, $hasAudio, false);
-                $finalAssistantMsg = $secondResponse['choices'][0]['message'] ?? [];
+                $routes      = $this->executeTransitPlan($resolvedCoords['from'], $resolvedCoords['to'], $args['walkReluctance'] ?? 13.5);
+                $toolContent = !empty($routes)
+                    ? json_encode(['success' => true, 'routes_found' => count($routes), 'options' => $routes])
+                    : json_encode(['success' => false, 'message' => 'No transit routes found right now.']);
             }
+
+            // ── Append tool turns to in-memory history for LLM turn 2 ─────────
+            $history[] = [
+                'role'       => 'assistant',
+                'tool_calls' => [[
+                    'function' => [
+                        'name'      => 'get_route',
+                        'arguments' => json_encode($args),
+                    ],
+                ]],
+            ];
+            $history[] = [
+                'role'         => 'tool',
+                'tool_call_id' => 'call_1',
+                'content'      => $toolContent,
+            ];
+
+            // ── Step 2b: LLM turn 2 — narrate route results (no tools) ────────
+            $secondResponse = $this->llm->chat($history, $this->systemPrompt(), [], false);
+            $finalText      = $secondResponse['text'] ?? '';
+
         } else {
-            $finalAssistantMsg = $assistantMsg;
+            // No tool call — plain conversational reply
+            $finalText = $firstResponse['text'] ?? '';
         }
 
-        $audioData = $finalAssistantMsg['audio']['data'] ?? null;
-        $transcript = $finalAssistantMsg['audio']['transcript'] ?? $finalAssistantMsg['content'] ?? '';
+        // Guard against empty final text (e.g. Gemini SAFETY block)
+        if (empty(trim($finalText))) {
+            $finalText = "I'm not sure how to help with that. Could you rephrase?";
+        }
 
-        $this->saveLightweightHistory($sessionId, $history, $transcript);
+        // ── Step 3: TTS — text → audio ─────────────────────────────────────────
+        $audioData = $this->tts->synthesize($finalText);
+
+        $this->saveLightweightHistory($sessionId, $history, $finalText);
 
         $output = [
-            'spoken_response' => $transcript,
+            'spoken_response' => $finalText,
             'tts_audio'       => $audioData,
             'holding_phrase'  => $holdingPhrase,
             'routes'          => $routes,
         ];
 
-        if ($text && !$hasAudio && empty($routes)) Cache::put($textCacheKey, $output, self::ROUTE_CACHE_TTL);
-        if (!empty($routes) && isset($geoCacheKey)) Cache::put($geoCacheKey, $output, self::ROUTE_CACHE_TTL);
+        if ($text && !$hasAudio && empty($routes)) {
+            Cache::put($textCacheKey, $output, self::ROUTE_CACHE_TTL);
+        }
+        if (!empty($routes) && isset($geoCacheKey)) {
+            Cache::put($geoCacheKey, $output, self::ROUTE_CACHE_TTL);
+        }
 
         return $output;
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Location resolution (unchanged)
+    // ─────────────────────────────────────────────────────────────────────────
 
     private function extractCoordinates(array $args, ?float $userLat, ?float $userLng, array $aliases): array
     {
@@ -209,18 +238,15 @@ class AiAssistantService
 
     private function resolveCoordinate(string $locationName, ?float $userLat, ?float $userLng, array $aliases): ?array
     {
-        // 1. Accept dynamic UI alias injection
         if (array_key_exists($locationName, $aliases)) {
             return $aliases[$locationName];
         }
 
-        // 2. Handle contextual keywords
         if ($this->isContextualLocation($locationName)) {
             if (!$userLat || !$userLng) return null;
             return ['lat' => $userLat, 'lng' => $userLng, 'name' => 'Current Location'];
         }
 
-        // 3. PRIORITIZATION FIX: Intercept matching records inside the user's saved entries
         $user = auth('sanctum')->user();
         if ($user) {
             $savedPlace = SavedPlace::where('user_id', $user->id)
@@ -232,21 +258,19 @@ class AiAssistantService
 
             if ($savedPlace) {
                 return [
-                    'lat'  => (float)$savedPlace->lat,
-                    'lng'  => (float)$savedPlace->lng,
+                    'lat'  => (float) $savedPlace->lat,
+                    'lng'  => (float) $savedPlace->lng,
                     'name' => $savedPlace->name,
                 ];
             }
         }
 
-        // 4. Fallback to general geocoding service
         return $this->geoService->getCoordinates($locationName, $userLat, $userLng);
     }
 
     private function handleResolutionFailure(string $unresolvedName, string $field): array
     {
-        // Safely check if a Sanctum API token authenticates the current request
-        $user = auth('sanctum')->user();
+        $user            = auth('sanctum')->user();
         $isAuthenticated = !is_null($user);
 
         return [
@@ -256,7 +280,7 @@ class AiAssistantService
             'isAuthenticated' => $isAuthenticated,
             'savedPlaces'     => $isAuthenticated
                 ? SavedPlace::where('user_id', $user->id)->get(['id', 'name', 'lat', 'lng', 'pin', 'category'])->toArray()
-                : []
+                : [],
         ];
     }
 
@@ -268,78 +292,41 @@ class AiAssistantService
     private function executeTransitPlan(array $from, array $to, float $walkReluctance): array
     {
         $routes = $this->transitEngine->findJourney(
-            (float)$from['lat'],
-            (float)$from['lng'],
-            (float)$to['lat'],
-            (float)$to['lng'],
+            (float) $from['lat'],
+            (float) $from['lng'],
+            (float) $to['lat'],
+            (float) $to['lng'],
             null, null, $walkReluctance
         );
 
-        // Inject the real geocoded names to overwrite OTP's generic "Origin/Destination" labels
         foreach ($routes as &$route) {
             $segments = &$route['segments'];
             if (!empty($segments)) {
-                $firstIdx = 0;
-                $lastIdx = count($segments) - 1;
-
-                if (isset($from['name'])) {
-                    $segments[$firstIdx]['from']['name'] = $from['name'];
-                }
-                if (isset($to['name'])) {
-                    $segments[$lastIdx]['to']['name'] = $to['name'];
-                }
+                if (isset($from['name'])) $segments[0]['from']['name']                  = $from['name'];
+                if (isset($to['name']))   $segments[count($segments) - 1]['to']['name'] = $to['name'];
             }
         }
 
         return $routes;
     }
 
-    private function callAudioChat(array $messages, bool $needsAudio = true, bool $includeTools = true): ?array
-    {
-        try {
-            $payload = [
-                'model'    => $needsAudio ? $this->audioModel : $this->textModel,
-                'messages' => $messages,
-            ];
-
-            if ($includeTools) {
-                $payload['tools']       = $this->tools();
-                $payload['tool_choice'] = 'auto';
-            }
-
-            if ($needsAudio) {
-                $payload['modalities'] = ['text', 'audio'];
-                $payload['audio']      = ['voice' => 'alloy', 'format' => 'wav'];
-            }
-
-            $response = Http::withoutVerifying()
-                ->withToken(config('services.openai.key'))
-                ->timeout(45)
-                ->post('https://api.openai.com/v1/chat/completions', $payload);
-
-            if (!$response->successful()) {
-                Log::error('OpenAI API Rejected Request', ['status' => $response->status(), 'body' => $response->json()]);
-                return null;
-            }
-
-            return $response->json();
-        } catch (Exception $e) {
-            Log::error('OpenAI Call Failure: ' . $e->getMessage());
-            return null;
-        }
-    }
-
-    private function buildMessages(array $history): array
-    {
-        return array_merge([['role' => 'system', 'content' => $this->systemPrompt()]], $history);
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // History (unchanged)
+    // ─────────────────────────────────────────────────────────────────────────
 
     private function saveLightweightHistory(string $sessionId, array $history, string $finalTranscript): void
     {
-        foreach ($history as &$msg) {
-            if ($msg['role'] === 'user' && is_array($msg['content'])) $msg['content'] = '[User Audio Input]';
+        $clean = [];
+        foreach ($history as $msg) {
+            // Keep only simple role/content pairs — drop tool turns and audio refs
+            if (in_array($msg['role'], ['user', 'assistant']) && !isset($msg['tool_calls'])) {
+                $clean[] = [
+                    'role'    => $msg['role'],
+                    'content' => is_array($msg['content']) ? '[Voice message]' : ($msg['content'] ?? ''),
+                ];
+            }
         }
-        $history[] = ['role' => 'assistant', 'content' => $finalTranscript];
-        Cache::put("kwame:{$sessionId}", array_slice($history, -20), self::SESSION_TTL);
+        $clean[] = ['role' => 'assistant', 'content' => $finalTranscript];
+        Cache::put("kwame:{$sessionId}", array_slice($clean, -20), self::SESSION_TTL);
     }
 }

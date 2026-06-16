@@ -60,4 +60,9 @@ return [
         'key' => env('OPENAI_API_KEY'),
     ],
 
+    'google_cloud' => [
+        'project_id' => env('GCP_PROJECT_ID'),
+        'key_path'   => env('GCP_KEY_PATH', 'storage/app/gcp-key.json'),
+    ],
+
 ];

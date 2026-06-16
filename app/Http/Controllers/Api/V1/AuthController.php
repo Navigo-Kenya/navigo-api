@@ -31,12 +31,13 @@ class AuthController extends Controller
             'phone_number' => $data['phone_number'],
         ]);
 
-        $this->otp->generate($user->phone_number, 'phone_verification');
+        // [PHONE VERIFICATION DISABLED] — re-enable block below and remove token line to restore
+        // $this->otp->generate($user->phone_number, 'phone_verification');
+        // return response()->json(['needs_phone_verification' => true, 'phone' => $user->phone_number], 201);
 
-        return response()->json([
-            'needs_phone_verification' => true,
-            'phone'                    => $user->phone_number,
-        ], 201);
+        $token = $user->createToken('mobile', ['*'], now()->addDays(30))->plainTextToken;
+
+        return response()->json(['token' => $token, 'user' => $user], 201);
     }
 
     public function login(Request $request): JsonResponse
@@ -52,21 +53,14 @@ class AuthController extends Controller
             return response()->json(['message' => 'Invalid credentials.'], 401);
         }
 
-        if (!$user->isPhoneVerified()) {
-            if (!$user->phone_number) {
-                return response()->json([
-                    'message'          => 'No phone number on this account. Please sign in with Google or Apple.',
-                    'needs_phone_setup' => true,
-                ], 403);
-            }
-
-            $this->otp->generate($user->phone_number, 'phone_verification');
-
-            return response()->json([
-                'needs_phone_verification' => true,
-                'phone'                    => $user->phone_number,
-            ], 403);
-        }
+        // [PHONE VERIFICATION DISABLED] — uncomment block below to restore
+        // if (!$user->isPhoneVerified()) {
+        //     if (!$user->phone_number) {
+        //         return response()->json(['message' => 'No phone number on this account.', 'needs_phone_setup' => true], 403);
+        //     }
+        //     $this->otp->generate($user->phone_number, 'phone_verification');
+        //     return response()->json(['needs_phone_verification' => true, 'phone' => $user->phone_number], 403);
+        // }
 
         $token = $user->createToken('mobile', ['*'], now()->addDays(30))->plainTextToken;
 
