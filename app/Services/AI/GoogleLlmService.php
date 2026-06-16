@@ -190,22 +190,27 @@ class GoogleLlmService
         }
 
         // Inject audio into the last user turn so Gemini processes voice input natively.
-        // Expo records M4A/AAC on native devices; audio/mp4 is the correct MIME alias.
-        if (!empty($audioFile['base64']) && !empty($contents)) {
+        if (!empty($audioFile['base64'])) {
+            // Normalize MIME: Expo's HIGH_QUALITY preset records M4A/AAC regardless of what
+            // the frontend declares. Map any WAV/M4A aliases to audio/mp4 which Vertex AI accepts.
+            $rawMime = $audioFile['mime'] ?? 'audio/mp4';
+            $mime    = match (true) {
+                in_array($rawMime, ['audio/wav', 'audio/x-wav', 'audio/wave']) => 'audio/mp4',
+                in_array($rawMime, ['audio/m4a', 'audio/x-m4a'])              => 'audio/mp4',
+                default                                                         => $rawMime,
+            };
+
+            $audioPart = ['inlineData' => ['mimeType' => $mime, 'data' => $audioFile['base64']]];
+
+            // Find the last user turn and replace its parts with just the audio —
+            // placeholder text like "[Voice message]" is noise; the system prompt is context enough.
             $lastIdx = count($contents) - 1;
             while ($lastIdx >= 0 && $contents[$lastIdx]['role'] !== 'user') {
                 $lastIdx--;
             }
 
-            $mime        = $audioFile['mime'] ?? 'audio/mp4';
-            $audioPart   = ['inlineData' => ['mimeType' => $mime, 'data' => $audioFile['base64']]];
-
             if ($lastIdx >= 0) {
-                // Replace a bare placeholder text with the actual audio part
-                $existingParts = $contents[$lastIdx]['parts'];
-                $textParts     = array_filter($existingParts, fn ($p) => !empty(trim($p['text'] ?? '')));
-                $contents[$lastIdx]['parts'] = array_values($textParts);
-                $contents[$lastIdx]['parts'][] = $audioPart;
+                $contents[$lastIdx]['parts'] = [$audioPart];
             } else {
                 $contents[] = ['role' => 'user', 'parts' => [$audioPart]];
             }

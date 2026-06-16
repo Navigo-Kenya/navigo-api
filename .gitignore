@@ -27,3 +27,4 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 /storage/app/gcp-key.json
+/certs
