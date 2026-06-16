@@ -36,6 +36,15 @@ class GoogleTtsService
             return null;
         }
 
+        // Google TTS rejects requests where voiceName and languageCode don't share the
+        // same locale prefix (e.g. 'en-US-Neural2-D' requires 'en-US', not 'en-KE').
+        // Derive the correct locale from the voice name so callers can freely set both
+        // independently without worrying about compatibility.
+        $voiceParts = explode('-', $voiceName);
+        if (count($voiceParts) >= 2 && !str_starts_with($voiceName, $languageCode)) {
+            $languageCode = $voiceParts[0] . '-' . $voiceParts[1];
+        }
+
         try {
             $response = Http::withoutVerifying()
                 ->timeout(15)

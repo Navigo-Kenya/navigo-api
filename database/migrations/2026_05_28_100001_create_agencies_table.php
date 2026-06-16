@@ -17,23 +17,24 @@ return new class extends Migration
             $table->string('agency_lang')->default('en');
             $table->string('agency_phone')->nullable();
             $table->string('agency_email')->nullable();
+            $table->string('type')->default('operator'); // authority, operator, or contracted
             $table->timestamps();
         });
 
         // Seed default agency so migration 1007 can safely add the routes FK
-        DB::table('agencies')->upsert([
-            [
-                'agency_id'       => 'hopln',
-                'agency_name'     => 'Hopln Nairobi',
-                'agency_url'      => 'https://hopln.app',
-                'agency_timezone' => 'Africa/Nairobi',
-                'agency_lang'     => 'en',
-                'agency_phone'    => null,
-                'agency_email'    => null,
-                'created_at'      => now(),
-                'updated_at'      => now(),
-            ],
-        ], ['agency_id'], ['agency_name', 'agency_url', 'agency_timezone', 'updated_at']);
+        // DB::table('agencies')->upsert([
+        //     [
+        //         'agency_id'       => 'hopln',
+        //         'agency_name'     => 'Hopln Nairobi',
+        //         'agency_url'      => 'https://hopln.app',
+        //         'agency_timezone' => 'Africa/Nairobi',
+        //         'agency_lang'     => 'en',
+        //         'agency_phone'    => null,
+        //         'agency_email'    => null,
+        //         'created_at'      => now(),
+        //         'updated_at'      => now(),
+        //     ],
+        // ], ['agency_id'], ['agency_name', 'agency_url', 'agency_timezone', 'updated_at']);
     }
 
     public function down(): void

@@ -12,13 +12,13 @@ class AgencySeeder extends Seeder
         DB::table('agencies')->upsert(
             [
                 [
-                    'agency_id'       => 'hopln',
-                    'agency_name'     => 'Hopln Nairobi',
-                    'agency_url'      => 'https://hopln.app',
+                    'agency_id'       => 'navigo',
+                    'agency_name'     => 'Navigo Nairobi',
+                    'agency_url'      => 'https://navigo.co.ke',
                     'agency_timezone' => 'Africa/Nairobi',
                     'agency_lang'     => 'en',
                     'agency_phone'    => null,
-                    'agency_email'    => null,
+                    'agency_email'    => 'support@navigo.co.ke',
                     'created_at'      => now(),
                     'updated_at'      => now(),
                 ],
