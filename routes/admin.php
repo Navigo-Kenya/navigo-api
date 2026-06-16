@@ -128,8 +128,12 @@ Route::prefix('v1/console')
         Route::post('agencies',                             [ConsoleAgencyController::class, 'store'])->middleware('role:agencies.create');
         Route::patch('agencies/{id}',                       [ConsoleAgencyController::class, 'update'])->middleware('role:agencies.edit');
         Route::delete('agencies/{id}',                      [ConsoleAgencyController::class, 'destroy'])->middleware('role:agencies.delete');
-        Route::get('agencies/{id}/onboarding-status',       [ConsoleAgencyController::class, 'onboardingStatus']);
-        Route::post('agencies/{id}/complete-onboarding',    [ConsoleAgencyController::class, 'completeOnboarding'])->middleware('role:agencies.edit');
+        Route::get('agencies/{id}/onboarding-status',         [ConsoleAgencyController::class, 'onboardingStatus']);
+        Route::post('agencies/{id}/complete-onboarding',      [ConsoleAgencyController::class, 'completeOnboarding'])->middleware('role:agencies.edit');
+        Route::get('agencies/{id}/operated-routes',           [ConsoleAgencyController::class, 'operatedRoutes']);
+        Route::get('agencies/{id}/available-routes',          [ConsoleAgencyController::class, 'availableRoutes']);
+        Route::post('agencies/{id}/operated-routes',          [ConsoleAgencyController::class, 'claimRoutes'])->middleware('role:agencies.edit');
+        Route::delete('agencies/{id}/operated-routes/{route}', [ConsoleAgencyController::class, 'unclaimRoute'])->middleware('role:agencies.edit');
 
         // ── Staff Invitations ─────────────────────────────────────────────────
         // index/invite/revoke use agencies.edit so operator_owner can manage their own staff.

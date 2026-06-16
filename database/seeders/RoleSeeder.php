@@ -48,15 +48,12 @@ class RoleSeeder extends Seeder
             'routes.view', 'routes.create', 'routes.edit', 'routes.delete',
             'trips.view', 'trips.create', 'trips.edit', 'trips.delete',
             'calendars.view', 'calendars.create', 'calendars.edit', 'calendars.delete',
-            'agencies.view', 'agencies.edit',
+            'agencies.edit',                                    // own agency settings only; no agencies.view (list)
             'fares.view', 'fares.edit',
             'fleet.view', 'fleet.edit',
             'ledger.view', 'ledger.configure',
             'ops.view', 'ops.manage_alerts', 'ops.manage_incidents',
             'scheduling.view', 'scheduling.edit',
-            'quality.view', 'quality.fix',
-            'gtfs.view', 'gtfs.export',
-            'analytics.view',
         ]);
 
         // ── operator_data_manager ────────────────────────────────────────────────
@@ -67,10 +64,7 @@ class RoleSeeder extends Seeder
             'routes.view', 'routes.create', 'routes.edit', 'routes.delete',
             'trips.view', 'trips.create', 'trips.edit', 'trips.delete',
             'calendars.view', 'calendars.create', 'calendars.edit', 'calendars.delete',
-            'agencies.view',
             'network.view',
-            'quality.view', 'quality.fix',
-            'gtfs.view', 'gtfs.export',
             'scheduling.view', 'scheduling.edit',
         ]);
 
@@ -89,7 +83,6 @@ class RoleSeeder extends Seeder
             'dashboard.view',
             'fares.view', 'fares.edit',
             'ledger.view', 'ledger.configure',
-            'analytics.view',
         ]);
 
         // ── operator_ops_coordinator ─────────────────────────────────────────────
@@ -99,7 +92,6 @@ class RoleSeeder extends Seeder
             'ops.view', 'ops.manage_alerts', 'ops.manage_incidents',
             'fleet.view',
             'scheduling.view',
-            'analytics.view',
         ]);
 
         // ── moderator ────────────────────────────────────────────────────────────
@@ -108,9 +100,8 @@ class RoleSeeder extends Seeder
             'dashboard.view',
             'users.view',
             'contributions.view', 'contributions.moderate',
-            'stops.view', 'routes.view', 'agencies.view',
+            'stops.view', 'routes.view',
             'ops.view', 'ops.manage_incidents',
-            'quality.view',
         ]);
 
         // ── custom ───────────────────────────────────────────────────────────────

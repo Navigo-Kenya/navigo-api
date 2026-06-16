@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Agency extends Model
@@ -16,5 +17,11 @@ class Agency extends Model
     public function routes(): HasMany
     {
         return $this->hasMany(Route::class, 'agency_id', 'agency_id');
+    }
+
+    public function operatedRoutes(): BelongsToMany
+    {
+        return $this->belongsToMany(Route::class, 'route_operators', 'agency_id', 'route_id')
+                    ->withPivot('status', 'linked_at');
     }
 }

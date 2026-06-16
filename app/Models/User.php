@@ -48,6 +48,14 @@ class User extends Authenticatable
         ];
     }
 
+    public function isOperator(): bool
+    {
+        return $this->hasAnyRole([
+            'operator_owner', 'operator_data_manager', 'operator_fleet_manager',
+            'operator_finance_officer', 'operator_ops_coordinator',
+        ]);
+    }
+
     public function isBanned(): bool
     {
         return $this->banned_at !== null;

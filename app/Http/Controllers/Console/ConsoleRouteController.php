@@ -15,10 +15,22 @@ class ConsoleRouteController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $scope = $this->agencyScope($request);
+
         $q = Route::withCount('trips');
 
-        if ($request->filled('agency_id')) {
-            $q->where('agency_id', $request->agency_id);
+        if ($scope !== null) {
+            // Operator-scoped users only see routes they have claimed via route_operators.
+            $q->whereIn('route_id', function ($sub) use ($scope) {
+                $sub->select('route_id')
+                    ->from('route_operators')
+                    ->whereIn('agency_id', $scope);
+            });
+        } else {
+            // Global staff: standard agency_id filter.
+            if ($request->filled('agency_id')) {
+                $q->where('agency_id', $request->input('agency_id'));
+            }
         }
 
         if ($search = $request->input('search')) {

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Console;
 
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
+use App\Models\Route;
 use App\Models\SplitConfig;
 use App\Models\StaffInvitation;
 use App\Models\Wallet;
@@ -91,7 +92,9 @@ class ConsoleAgencyController extends Controller
 
         $steps = [
             'profile_set'       => !empty($agency->reg_number) || !empty($agency->logo_url),
-            'routes_added'      => $agency->routes_count > 0,
+            'routes_added'      => $agency->type === 'operator'
+                                    ? $agency->operatedRoutes()->exists()
+                                    : $agency->routes_count > 0,
             'split_configured'  => SplitConfig::where('agency_id', $id)->where('is_active', true)->exists(),
             'staff_invited'     => StaffInvitation::where('agency_id', $id)->whereNotNull('accepted_at')->exists(),
         ];
@@ -104,6 +107,80 @@ class ConsoleAgencyController extends Controller
             'steps'                   => $steps,
             'next_step'               => $nextStep,
         ]);
+    }
+
+    // ── Operator Route Claims ─────────────────────────────────────────────────
+
+    public function operatedRoutes(Request $request, string $id): JsonResponse
+    {
+        $agency = Agency::findOrFail($id);
+        $this->assertAgencyAllowed($request, $agency->agency_id);
+
+        if ($agency->type !== 'operator') {
+            return response()->json(['message' => 'Only operator agencies have operated routes.'], 422);
+        }
+
+        $routes = $agency->operatedRoutes()
+            ->with('agency:agency_id,agency_name')
+            ->withCount('trips')
+            ->orderBy('route_short_name')
+            ->get();
+
+        return response()->json($routes);
+    }
+
+    public function availableRoutes(Request $request, string $id): JsonResponse
+    {
+        $agency = Agency::findOrFail($id);
+        $this->assertAgencyAllowed($request, $agency->agency_id);
+
+        if ($agency->type !== 'operator') {
+            return response()->json(['message' => 'Only operator agencies can claim routes.'], 422);
+        }
+
+        $claimedIds = $agency->operatedRoutes()->pluck('routes.route_id');
+
+        $q = Route::whereNotIn('route_id', $claimedIds)
+            ->with('agency:agency_id,agency_name')
+            ->withCount('trips');
+
+        if ($search = $request->input('search')) {
+            $q->where(function ($sub) use ($search) {
+                $sub->where('route_short_name', 'ilike', "%{$search}%")
+                    ->orWhere('route_long_name', 'ilike', "%{$search}%");
+            });
+        }
+
+        return response()->json($q->orderBy('route_short_name')->limit(150)->get());
+    }
+
+    public function claimRoutes(Request $request, string $id): JsonResponse
+    {
+        $agency = Agency::findOrFail($id);
+        $this->assertAgencyAllowed($request, $agency->agency_id);
+
+        if ($agency->type !== 'operator') {
+            return response()->json(['message' => 'Only operator agencies can claim routes.'], 422);
+        }
+
+        $data = $request->validate([
+            'route_ids'   => 'required|array|min:1',
+            'route_ids.*' => 'required|string|exists:routes,route_id',
+        ]);
+
+        $agency->operatedRoutes()->syncWithoutDetaching($data['route_ids']);
+
+        return response()->json(['claimed' => count($data['route_ids'])]);
+    }
+
+    public function unclaimRoute(Request $request, string $id, string $routeId): JsonResponse
+    {
+        $agency = Agency::findOrFail($id);
+        $this->assertAgencyAllowed($request, $agency->agency_id);
+
+        $agency->operatedRoutes()->detach($routeId);
+
+        return response()->json(['message' => 'Route removed.']);
     }
 
     public function completeOnboarding(Request $request, string $id): JsonResponse
