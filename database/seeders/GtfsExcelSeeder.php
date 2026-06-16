@@ -76,47 +76,47 @@ class GtfsExcelSeeder extends Seeder
         $reader->close();
     }
 
-    private function seedAgencies(): void
-    {
-        $this->command->info('🏢 Upserting agencies from routes data...');
+    // private function seedAgencies(): void
+    // {
+    //     $this->command->info('🏢 Upserting agencies from routes data...');
 
-        $seen = [];
-        foreach ($this->readExcel('routes.xlsx') as $row) {
-            $id = isset($row['agency_id']) && $row['agency_id'] !== '' ? (string) $row['agency_id'] : null;
-            if ($id !== null && !isset($seen[$id])) {
-                $seen[$id] = true;
-            }
-        }
+    //     $seen = [];
+    //     foreach ($this->readExcel('routes.xlsx') as $row) {
+    //         $id = isset($row['agency_id']) && $row['agency_id'] !== '' ? (string) $row['agency_id'] : null;
+    //         if ($id !== null && !isset($seen[$id])) {
+    //             $seen[$id] = true;
+    //         }
+    //     }
 
-        if (empty($seen)) {
-            return;
-        }
+    //     if (empty($seen)) {
+    //         return;
+    //     }
 
-        $now  = now()->toDateTimeString();
-        $rows = [];
-        foreach (array_keys($seen) as $id) {
-            $rows[] = [
-                'agency_id'       => $id,
-                'agency_name'     => $id,          // placeholder — update via Agencies console
-                'agency_url'      => 'https://hopln.app',
-                'agency_timezone' => 'Africa/Nairobi',
-                'agency_lang'     => 'en',
-                'agency_phone'    => null,
-                'agency_email'    => null,
-                'created_at'      => $now,
-                'updated_at'      => $now,
-            ];
-        }
+    //     $now  = now()->toDateTimeString();
+    //     $rows = [];
+    //     foreach (array_keys($seen) as $id) {
+    //         $rows[] = [
+    //             'agency_id'       => $id,
+    //             'agency_name'     => $id,          // placeholder — update via Agencies console
+    //             'agency_url'      => 'https://hopln.app',
+    //             'agency_timezone' => 'Africa/Nairobi',
+    //             'agency_lang'     => 'en',
+    //             'agency_phone'    => null,
+    //             'agency_email'    => null,
+    //             'created_at'      => $now,
+    //             'updated_at'      => $now,
+    //         ];
+    //     }
 
-        // Only insert new agencies — preserve names already set by AgencySeeder / admins
-        DB::table('agencies')->upsert(
-            $rows,
-            ['agency_id'],
-            ['updated_at']   // do NOT overwrite agency_name/url if the row already exists
-        );
+    //     // Only insert new agencies — preserve names already set by AgencySeeder / admins
+    //     DB::table('agencies')->upsert(
+    //         $rows,
+    //         ['agency_id'],
+    //         ['updated_at']   // do NOT overwrite agency_name/url if the row already exists
+    //     );
 
-        $this->command->info('   -> ' . count($rows) . ' agencies upserted.');
-    }
+    //     $this->command->info('   -> ' . count($rows) . ' agencies upserted.');
+    // }
 
     private function seedServiceCalendars(): void
     {
