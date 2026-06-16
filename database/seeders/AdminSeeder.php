@@ -11,12 +11,13 @@ class AdminSeeder extends Seeder
     public function run(): void
     {
         $user = User::updateOrCreate(
-            ['email' => env('ADMIN_EMAIL', 'admin@hnavigo.co.ke')],
+            ['email' => env('ADMIN_EMAIL', 'admin@navigo.co.ke')],
             [
                 'name'             => 'Navigo Admin',
                 'password'         => Hash::make(env('ADMIN_PASSWORD', 'changeme123!')),
                 'role'             => 'superadmin',
                 'phone_verified_at' => now(),
+                'email_verified_at' => now(),
             ]
         );
 
