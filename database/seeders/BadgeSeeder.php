@@ -15,7 +15,7 @@ class BadgeSeeder extends Seeder
             [
                 'slug'              => 'first_step',
                 'name'              => 'First Step',
-                'description'       => 'Made your very first contribution to the Hopln community.',
+                'description'       => 'Made your very first contribution to the Navigo community.',
                 'icon'              => 'footsteps-outline',
                 'color'             => '#FF6F00',
                 'requirement_type'  => 'total_count',

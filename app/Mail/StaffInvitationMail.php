@@ -20,7 +20,7 @@ class StaffInvitationMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'You\'ve been invited to manage ' . $this->invitation->agency->agency_name . ' on Hopln Console',
+            subject: 'You\'ve been invited to manage ' . $this->invitation->agency->agency_name . ' on Navigo Console',
         );
     }
 

@@ -1,7 +1,7 @@
 <x-mail::message>
 # You're Invited
 
-You've been invited to manage **{{ $agencyName }}** on the Hopln Console.
+You've been invited to manage **{{ $agencyName }}** on the Navigo Console.
 
 **Role assigned:** {{ str_replace('_', ' ', ucwords($role, '_')) }}
 

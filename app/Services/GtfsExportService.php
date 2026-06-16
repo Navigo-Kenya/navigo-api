@@ -87,7 +87,7 @@ class GtfsExportService
 
         if ($agencies->isEmpty()) {
             Log::warning('GtfsExport: no agencies in DB, using hardcoded fallback');
-            $rows[] = ['hopln', 'Hopln Nairobi', 'https://hopln.app', 'Africa/Nairobi', 'en'];
+            $rows[] = ['navigo', 'Navigo Nairobi', 'https://navigo.co.ke', 'Africa/Nairobi', 'en'];
         } else {
             foreach ($agencies as $agency) {
                 $rows[] = [
@@ -137,7 +137,7 @@ class GtfsExportService
             foreach ($routes as $route) {
                 $rows[] = [
                     $route->route_id,
-                    $route->agency_id ?? 'hopln',
+                    $route->agency_id ?? 'navigo',
                     $route->route_short_name,
                     $route->route_long_name,
                     $route->route_type ?? 3,
