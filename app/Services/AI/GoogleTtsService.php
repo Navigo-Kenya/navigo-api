@@ -22,6 +22,9 @@ class GoogleTtsService
      */
     public function synthesize(string $text, float $speakingRate = 1.05): ?string
     {
+        // Strip Markdown formatting — TTS engines read asterisks aloud literally
+        $text = preg_replace('/\*\*([^*]+)\*\*/', '$1', $text);
+        $text = preg_replace('/\*([^*]+)\*/',     '$1', $text);
         $text = trim(mb_substr($text, 0, 500));
 
         if (empty($text)) {

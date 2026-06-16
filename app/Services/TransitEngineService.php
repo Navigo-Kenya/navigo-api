@@ -112,10 +112,21 @@ class TransitEngineService
                 return [];
             }
 
-            return array_values(array_map(
-                fn ($it) => $this->parseItinerary($it),
-                $itineraries,
-            ));
+            $parsed = array_map(fn ($it) => $this->parseItinerary($it), $itineraries);
+
+            // OTP sometimes returns the same itinerary twice when only one route exists.
+            // Deduplicate by summary + rounded total_duration (within 60 s = same route).
+            $seen = [];
+            $unique = [];
+            foreach ($parsed as $route) {
+                $bucket = ($route['summary'] ?? '') . '|' . (int) round(($route['total_duration'] ?? 0) / 60);
+                if (!isset($seen[$bucket])) {
+                    $seen[$bucket] = true;
+                    $unique[] = $route;
+                }
+            }
+
+            return array_values($unique);
 
         } catch (Exception $e) {
             Log::error('OTP Engine Error', ['message' => $e->getMessage()]);
