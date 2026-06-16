@@ -21,9 +21,9 @@ class AiAssistantService
         private GoogleTtsService     $tts,
     ) {}
 
-    private function systemPrompt(): string
+    private function systemPrompt(?string $responseStyle = null): string
     {
-        return <<<'PROMPT'
+        $base = <<<'PROMPT'
             You are Kwame, the voice assistant for Navigo, a public transit navigation platform.
             You are a warm, friendly, and knowledgeable guide for Nairobi's public transport network.
             Speak casually and empathetically, like a helpful local friend.
@@ -38,6 +38,14 @@ class AiAssistantService
             ROUTING RULES:
             1. CURRENT LOCATION: If the user says "here", "my location", or omits a start point, pass "current location" as the `from` parameter.
         PROMPT;
+
+        $suffix = match ($responseStyle) {
+            'professional' => 'Use formal, precise language. Avoid colloquialisms.',
+            'brief'        => 'Keep every response to one sentence maximum.',
+            default        => '',
+        };
+
+        return $suffix ? $base . "\n\n" . $suffix : $base;
     }
 
     private function tools(): array
@@ -65,11 +73,12 @@ class AiAssistantService
 
     public function chat(
         string  $sessionId,
-        ?string $text      = null,
-        ?array  $audioFile = null,
-        ?float  $userLat   = null,
-        ?float  $userLng   = null,
-        array   $aliases   = [],
+        ?string $text          = null,
+        ?array  $audioFile     = null,
+        ?float  $userLat       = null,
+        ?float  $userLng       = null,
+        array   $aliases       = [],
+        ?array  $voiceSettings = null,
     ): ?array {
         if (function_exists('set_time_limit')) {
             @set_time_limit(60);
@@ -95,14 +104,29 @@ class AiAssistantService
 
         $history[] = ['role' => 'user', 'content' => $text ?? '[Voice message]'];
 
+        $responseStyle = $voiceSettings['response_style'] ?? null;
+
         // ── Step 1: LLM turn 1 — Gemini transcribes + detects intent ──────────
-        $firstResponse = $this->llm->chat(
-            $history,
-            $this->systemPrompt(),
-            $this->tools(),
-            true,
-            $hasAudio ? $audioFile : null,
-        );
+        try {
+            $firstResponse = $this->llm->chat(
+                $history,
+                $this->systemPrompt($responseStyle),
+                $this->tools(),
+                true,
+                $hasAudio ? $audioFile : null,
+            );
+        } catch (\RuntimeException $e) {
+            $msg = match ($e->getMessage()) {
+                'VERTEX_QUOTA_EXCEEDED' => "I'm getting a lot of requests right now — please try again in a moment!",
+                'VERTEX_TIMEOUT'        => "That took too long on my end. Please try again!",
+                default                 => null,
+            };
+            if ($msg !== null) {
+                $this->saveLightweightHistory($sessionId, $history, $msg);
+                return ['spoken_response' => $msg, 'tts_audio' => null, 'holding_phrase' => null, 'routes' => []];
+            }
+            throw $e;
+        }
 
         if (!$firstResponse) return null;
 
@@ -179,7 +203,7 @@ class AiAssistantService
             ];
 
             // ── Step 2b: LLM turn 2 — narrate route results (no tools) ────────
-            $secondResponse = $this->llm->chat($history, $this->systemPrompt(), [], false);
+            $secondResponse = $this->llm->chat($history, $this->systemPrompt($responseStyle), [], false);
             $finalText      = $secondResponse['text'] ?? '';
 
         } else {
@@ -193,7 +217,13 @@ class AiAssistantService
         }
 
         // ── Step 3: TTS — text → audio ─────────────────────────────────────────
-        $audioData = $this->tts->synthesize($finalText);
+        $audioData = $this->tts->synthesize(
+            $finalText,
+            (float) ($voiceSettings['speaking_rate'] ?? 1.05),
+            $voiceSettings['voice_name']    ?? 'en-US-Neural2-D',
+            (float) ($voiceSettings['pitch'] ?? 0.0),
+            $voiceSettings['language_code'] ?? 'en-US',
+        );
 
         $this->saveLightweightHistory($sessionId, $history, $finalText);
 

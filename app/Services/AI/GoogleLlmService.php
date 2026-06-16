@@ -13,7 +13,7 @@ class GoogleLlmService
 
     // Vertex AI Gemini 2.5 Flash
     private const MODEL    = 'gemini-2.5-flash';
-    private const REGION   = 'us-central1';
+    private const REGION   = 'europe-west3'; // The available regions for Gemini 2.5 Flash are europe-west3, us-central1, and asia-southeast1
     private const ENDPOINT = 'https://' . self::REGION . '-aiplatform.googleapis.com/v1/projects/%s/locations/'
                            . self::REGION . '/publishers/google/models/' . self::MODEL . ':generateContent';
 
@@ -75,10 +75,11 @@ class GoogleLlmService
                 ->post($url, $payload);
 
             if (!$response->successful()) {
-                Log::error('Vertex AI API error', [
-                    'status' => $response->status(),
-                    'body'   => $response->json(),
-                ]);
+                $status = $response->status();
+                Log::error('Vertex AI API error', ['status' => $status, 'body' => $response->json()]);
+                if ($status === 429) {
+                    throw new \RuntimeException('VERTEX_QUOTA_EXCEEDED');
+                }
                 return null;
             }
 
@@ -114,8 +115,14 @@ class GoogleLlmService
                 'functionCall' => null,
             ];
 
+        } catch (\RuntimeException $e) {
+            throw $e; // propagate sentinel exceptions (VERTEX_QUOTA_EXCEEDED, VERTEX_TIMEOUT)
         } catch (\Throwable $e) {
-            Log::error('Vertex AI exception: ' . $e->getMessage());
+            $msg = $e->getMessage();
+            Log::error('Vertex AI exception: ' . $msg);
+            if (str_contains($msg, 'cURL error 28')) {
+                throw new \RuntimeException('VERTEX_TIMEOUT');
+            }
             return null;
         }
     }

@@ -20,8 +20,13 @@ class GoogleTtsService
      * @param  float  $speakingRate Playback speed multiplier (0.25–4.0)
      * @return string|null          Base64-encoded MP3, or null on failure
      */
-    public function synthesize(string $text, float $speakingRate = 1.05): ?string
-    {
+    public function synthesize(
+        string $text,
+        float  $speakingRate = 1.05,
+        string $voiceName    = 'en-US-Neural2-D',
+        float  $pitch        = 0.0,
+        string $languageCode = 'en-US',
+    ): ?string {
         // Strip Markdown formatting — TTS engines read asterisks aloud literally
         $text = preg_replace('/\*\*([^*]+)\*\*/', '$1', $text);
         $text = preg_replace('/\*([^*]+)\*/',     '$1', $text);
@@ -38,13 +43,13 @@ class GoogleTtsService
                 ->post(self::ENDPOINT, [
                     'input'       => ['text' => $text],
                     'voice'       => [
-                        'languageCode' => 'en-US',
-                        'name'         => 'en-US-Neural2-D',
+                        'languageCode' => $languageCode,
+                        'name'         => $voiceName,
                     ],
                     'audioConfig' => [
                         'audioEncoding' => 'MP3',
                         'speakingRate'  => $speakingRate,
-                        'pitch'         => 0.0,
+                        'pitch'         => $pitch,
                     ],
                 ]);
 

@@ -21,14 +21,20 @@ class AiTransitController extends Controller
         set_time_limit(60);
 
         $validated = $request->validate([
-            'session_id' => ['nullable', 'string', 'max:255'],
-            'text'       => ['nullable', 'string', 'max:1000'],
-            'audio'        => ['nullable', 'array'],
-            'audio.base64' => ['nullable', 'string'],
-            'audio.mime'   => ['nullable', 'string', 'max:50'],
-            'lat'        => ['nullable', 'numeric', 'between:-90,90'],
-            'lng'        => ['nullable', 'numeric', 'between:-180,180'],
-            'aliases'    => ['nullable', 'array'],
+            'session_id'                     => ['nullable', 'string', 'max:255'],
+            'text'                           => ['nullable', 'string', 'max:1000'],
+            'audio'                          => ['nullable', 'array'],
+            'audio.base64'                   => ['nullable', 'string'],
+            'audio.mime'                     => ['nullable', 'string', 'max:50'],
+            'lat'                            => ['nullable', 'numeric', 'between:-90,90'],
+            'lng'                            => ['nullable', 'numeric', 'between:-180,180'],
+            'aliases'                        => ['nullable', 'array'],
+            'voice_settings'                 => ['nullable', 'array'],
+            'voice_settings.voice_name'      => ['nullable', 'string', 'max:50'],
+            'voice_settings.speaking_rate'   => ['nullable', 'numeric', 'between:0.25,4.0'],
+            'voice_settings.pitch'           => ['nullable', 'numeric', 'between:-20.0,20.0'],
+            'voice_settings.language_code'   => ['nullable', 'string', 'max:20'],
+            'voice_settings.response_style'  => ['nullable', 'string', 'in:casual,professional,brief'],
         ]);
 
         $sessionId = $validated['session_id'] ?? 'default';
@@ -36,12 +42,13 @@ class AiTransitController extends Controller
 
         try {
             $result = $this->aiService->chat(
-                sessionId: $sessionId,
-                text:      $validated['text'] ?? null,
-                audioFile: $audioFile,
-                userLat:   $validated['lat'] ?? null,
-                userLng:   $validated['lng'] ?? null,
-                aliases:   $validated['aliases'] ?? [],
+                sessionId:     $sessionId,
+                text:          $validated['text'] ?? null,
+                audioFile:     $audioFile,
+                userLat:       $validated['lat'] ?? null,
+                userLng:       $validated['lng'] ?? null,
+                aliases:       $validated['aliases'] ?? [],
+                voiceSettings: $validated['voice_settings'] ?? null,
             );
 
             if (!$result) {

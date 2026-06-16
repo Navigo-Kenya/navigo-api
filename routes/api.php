@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AiTransitController;
+use App\Http\Controllers\Api\V1\KwameTtsController;
 use App\Http\Controllers\Api\V1\AlertsController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CoverageController;
@@ -68,6 +69,9 @@ Route::prefix('v1')->group(function () {
     // ── Journey ────────────────────────────────────────────────────
     Route::post('/journey/calculate', [RouteController::class, 'calculate']);
     Route::post('/journey/ai-plan',   [AiTransitController::class, 'planRouteWithAi']);
+
+    // ── Kwame TTS ──────────────────────────────────────────────────
+    Route::post('/kwame/speak', [KwameTtsController::class, 'speak']);
 
     // ── Community (public) ─────────────────────────────────────────
     Route::get('/contributions/nearby',    [ContributionController::class, 'nearby']);
