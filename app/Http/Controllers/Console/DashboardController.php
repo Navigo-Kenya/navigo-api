@@ -92,15 +92,30 @@ class DashboardController extends Controller
     public function agencyStats(Request $request): JsonResponse
     {
         $scope = $this->agencyScope($request);
+        $isOp  = $scope !== null && $request->user()->isOperator();
 
-        $routesCount = DB::table('routes')
-            ->when($scope !== null, fn ($q) => $q->whereIn('agency_id', $scope))
-            ->count();
+        if ($isOp) {
+            // Operators: count only routes/trips they operate via route_operators
+            $routesCount = DB::table('route_operators')
+                ->whereIn('agency_id', $scope)
+                ->distinct()
+                ->count('route_id');
 
-        $tripsCount = DB::table('trips')
-            ->join('routes', 'routes.route_id', '=', 'trips.route_id')
-            ->when($scope !== null, fn ($q) => $q->whereIn('routes.agency_id', $scope))
-            ->count();
+            $tripsCount = DB::table('trips')
+                ->whereIn('route_id', fn ($sub) =>
+                    $sub->select('route_id')->from('route_operators')->whereIn('agency_id', $scope)
+                )
+                ->count();
+        } else {
+            $routesCount = DB::table('routes')
+                ->when($scope !== null, fn ($q) => $q->whereIn('agency_id', $scope))
+                ->count();
+
+            $tripsCount = DB::table('trips')
+                ->join('routes', 'routes.route_id', '=', 'trips.route_id')
+                ->when($scope !== null, fn ($q) => $q->whereIn('routes.agency_id', $scope))
+                ->count();
+        }
 
         $vehiclesCount = DB::table('vehicles')
             ->when($scope !== null, fn ($q) => $q->whereIn('agency_id', $scope))
@@ -160,9 +175,15 @@ class DashboardController extends Controller
                 ->where('date', '>=', now()->subDays(7)->toDateString());
 
             if ($scope !== null) {
-                $q->whereIn('route_id', function ($sub) use ($scope) {
-                    $sub->select('route_id')->from('routes')->whereIn('agency_id', $scope);
-                });
+                if ($request->user()->isOperator()) {
+                    $q->whereIn('route_id', function ($sub) use ($scope) {
+                        $sub->select('route_id')->from('route_operators')->whereIn('agency_id', $scope);
+                    });
+                } else {
+                    $q->whereIn('route_id', function ($sub) use ($scope) {
+                        $sub->select('route_id')->from('routes')->whereIn('agency_id', $scope);
+                    });
+                }
             } elseif ($request->filled('agency_id')) {
                 $agencyId = $request->input('agency_id');
                 $q->whereIn('route_id', function ($sub) use ($agencyId) {

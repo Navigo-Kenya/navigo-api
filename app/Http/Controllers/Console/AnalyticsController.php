@@ -47,7 +47,15 @@ class AnalyticsController extends Controller
                     ->where('created_at', '>=', $since)
                     ->groupBy('date')
                     ->orderBy('date')
-                    ->get();
+                    ->get()
+                    ->map(fn ($row) => [
+                        'date'       => $row->date,
+                        'total'      => (int) $row->total,
+                        'standard'   => (int) $row->standard,
+                        'ai_planned' => (int) $row->ai_planned,
+                    ])
+                    ->values()
+                    ->toArray();
             } catch (\Throwable) {
                 return [];
             }
@@ -93,10 +101,10 @@ class AnalyticsController extends Controller
 
             return $rows->groupBy('date')->map(fn ($group, $date) => [
                 'date'      => $date,
-                'submitted' => $group->sum('count'),
-                'approved'  => $group->where('status', 'approved')->sum('count'),
-                'declined'  => $group->whereIn('status', ['declined', 'rejected'])->sum('count'),
-            ])->values();
+                'submitted' => (int) $group->sum('count'),
+                'approved'  => (int) $group->where('status', 'approved')->sum('count'),
+                'declined'  => (int) $group->whereIn('status', ['declined', 'rejected'])->sum('count'),
+            ])->values()->toArray();
         });
 
         return response()->json(['data' => $data]);
@@ -109,7 +117,9 @@ class AnalyticsController extends Controller
         $since = now()->subDays($days);
 
         $data = Cache::remember("console:analytics:growth:{$days}", 300, function () use ($since) {
-            return User::select(
+            $base = User::where('created_at', '<', $since)->count();
+
+            $rows = User::select(
                 DB::raw('DATE(created_at) as date'),
                 DB::raw('COUNT(*) as new_users')
             )
@@ -117,6 +127,16 @@ class AnalyticsController extends Controller
             ->groupBy('date')
             ->orderBy('date')
             ->get();
+
+            $cumulative = $base;
+            return $rows->map(function ($row) use (&$cumulative) {
+                $cumulative += (int) $row->new_users;
+                return [
+                    'date'        => $row->date,
+                    'new_users'   => (int) $row->new_users,
+                    'total_users' => $cumulative,
+                ];
+            })->values()->toArray();
         });
 
         return response()->json(['data' => $data]);
