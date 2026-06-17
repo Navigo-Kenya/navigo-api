@@ -54,6 +54,7 @@ class RoleSeeder extends Seeder
             'ledger.view', 'ledger.configure',
             'ops.view', 'ops.manage_alerts', 'ops.manage_incidents',
             'scheduling.view', 'scheduling.edit',
+            'members.view', 'members.manage',
         ]);
 
         // ── operator_data_manager ────────────────────────────────────────────────
@@ -66,6 +67,7 @@ class RoleSeeder extends Seeder
             'calendars.view', 'calendars.create', 'calendars.edit', 'calendars.delete',
             'network.view',
             'scheduling.view', 'scheduling.edit',
+            'members.view',
         ]);
 
         // ── operator_fleet_manager ───────────────────────────────────────────────
@@ -75,6 +77,7 @@ class RoleSeeder extends Seeder
             'fleet.view', 'fleet.edit',
             'ops.view', 'ops.manage_incidents',
             'scheduling.view',
+            'members.view',
         ]);
 
         // ── operator_finance_officer ─────────────────────────────────────────────
@@ -83,6 +86,7 @@ class RoleSeeder extends Seeder
             'dashboard.view',
             'fares.view', 'fares.edit',
             'ledger.view', 'ledger.configure',
+            'members.view',
         ]);
 
         // ── operator_ops_coordinator ─────────────────────────────────────────────
@@ -92,6 +96,7 @@ class RoleSeeder extends Seeder
             'ops.view', 'ops.manage_alerts', 'ops.manage_incidents',
             'fleet.view',
             'scheduling.view',
+            'members.view',
         ]);
 
         // ── moderator ────────────────────────────────────────────────────────────

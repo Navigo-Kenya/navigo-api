@@ -102,6 +102,10 @@ class PermissionSeeder extends Seeder
             // RBAC management (this section)
             'access.view',
             'access.manage',
+
+            // SACCO members
+            'members.view',
+            'members.manage',
         ];
 
         foreach ($permissions as $name) {
