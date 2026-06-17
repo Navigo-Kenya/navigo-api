@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WalletTransaction extends Model
 {
+    use HasUuids;
+
     public $timestamps = false;
 
     protected $fillable = [
@@ -15,15 +18,15 @@ class WalletTransaction extends Model
     ];
 
     protected $casts = [
-        'amount'       => 'float',
+        'amount'        => 'float',
         'balance_after' => 'float',
-        'created_at'   => 'datetime',
+        'created_at'    => 'datetime',
     ];
 
     protected static function booted(): void
     {
         static::creating(function (self $tx) {
-            $tx->created_at = now();
+            $tx->created_at = now()->toDateTimeString();
         });
     }
 

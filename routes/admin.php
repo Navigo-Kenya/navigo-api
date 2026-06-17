@@ -347,15 +347,16 @@ Route::prefix('v1/console')
         Route::delete('ops/sla/{id}',      [SlaController::class, 'destroy'])->middleware('role:ops.view');
 
         // ── Ledger & Clearinghouse ─────────────────────────────────────────────
-        Route::get('ledger/split-configs',             [ConsoleLedgerController::class, 'splitConfigs']);
-        Route::post('ledger/split-configs',            [ConsoleLedgerController::class, 'saveSplitConfig'])->middleware('role:ledger.configure');
-        Route::get('ledger/wallets',                   [ConsoleLedgerController::class, 'wallets']);
-        Route::get('ledger/wallets/{id}/transactions', [ConsoleLedgerController::class, 'walletTransactions']);
-        Route::get('ledger/fleet-revenue',             [ConsoleLedgerController::class, 'fleetRevenue']);
-        Route::get('ledger/revenue-trend',             [ConsoleLedgerController::class, 'revenueTrend']);
-        Route::get('ledger/vehicles/{id}/revenue',     [ConsoleLedgerController::class, 'vehicleRevenue']);
-        Route::get('ledger/route-revenue',             [ConsoleLedgerController::class, 'routeRevenue']);
-        Route::post('ledger/test-split',               [ConsoleLedgerController::class, 'testSplit'])->middleware('role:ledger.configure');
+        Route::get('ledger/split-configs',              [ConsoleLedgerController::class, 'splitConfigs']);
+        Route::post('ledger/split-configs',             [ConsoleLedgerController::class, 'saveSplitConfig'])->middleware('role:ledger.configure');
+        Route::post('ledger/daily-levy',                [ConsoleLedgerController::class, 'applyDailyLevy'])->middleware('role:ledger.configure');
+        Route::get('ledger/wallets',                    [ConsoleLedgerController::class, 'wallets']);
+        Route::get('ledger/wallets/{id}/transactions',  [ConsoleLedgerController::class, 'walletTransactions']);
+        Route::get('ledger/fleet-revenue',              [ConsoleLedgerController::class, 'fleetRevenue']);
+        Route::get('ledger/revenue-trend',              [ConsoleLedgerController::class, 'revenueTrend']);
+        Route::get('ledger/vehicles/{id}/revenue',      [ConsoleLedgerController::class, 'vehicleRevenue']);
+        Route::get('ledger/route-revenue',              [ConsoleLedgerController::class, 'routeRevenue']);
+        Route::post('ledger/test-split',                [ConsoleLedgerController::class, 'testSplit'])->middleware('role:ledger.configure');
 
         // ── Real-Time Operations ───────────────────────────────────────────────
         Route::get('ops/live/positions',              [ConsoleRealTimeController::class, 'livePositions']);

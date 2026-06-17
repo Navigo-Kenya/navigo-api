@@ -11,6 +11,7 @@ use App\Services\LedgerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class ConsoleLedgerController extends Controller
 {
@@ -18,57 +19,94 @@ class ConsoleLedgerController extends Controller
 
     // ── Split Configs ─────────────────────────────────────────────────────────
 
+    /**
+     * Return the split config for the active agency (operators) or a specific
+     * agency (admins). Returns 404 when none is configured yet.
+     */
     public function splitConfigs(Request $request): JsonResponse
     {
-        $q = SplitConfig::query();
         $scope = $this->agencyScope($request);
 
         if ($scope !== null) {
-            // Operator: show their agency's config + the global fallback.
-            $ids = $scope;
-            $q->where(function ($sub) use ($ids) {
-                $sub->whereIn('agency_id', $ids)->orWhereNull('agency_id');
-            });
+            // Operator: return their own config (one row or empty)
+            $configs = SplitConfig::whereIn('agency_id', $scope)->get();
         } elseif ($request->filled('agency_id')) {
-            // Admin filtered by explicit agency.
-            $q->where(function ($sub) use ($request) {
-                $sub->where('agency_id', $request->input('agency_id'))
-                    ->orWhereNull('agency_id');
-            });
+            $configs = SplitConfig::where('agency_id', $request->input('agency_id'))->get();
+        } else {
+            // Admin with no filter: all configs
+            $configs = SplitConfig::orderBy('agency_id')->get();
         }
 
-        return response()->json(
-            $q->orderByRaw('agency_id IS NOT NULL, agency_id')->get()
-        );
+        return response()->json($configs);
     }
 
+    /**
+     * Create or update the split config for an agency (upsert by agency_id).
+     * Both percentage and lengo modes are accepted.
+     */
     public function saveSplitConfig(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'agency_id'    => 'nullable|string|exists:agencies,agency_id',
-            'vehicle_pct'  => 'required|numeric|min:0|max:100',
-            'sacco_pct'    => 'required|numeric|min:0|max:100',
-            'platform_pct' => 'required|numeric|min:0|max:100',
-            'notes'        => 'nullable|string',
-            'is_active'    => 'boolean',
+            'agency_id'        => 'required|string|exists:agencies,agency_id',
+            'split_enabled'    => 'boolean',
+            'split_type'       => ['required', Rule::in(['percentage', 'lengo'])],
+            // Percentage-mode fields
+            'vehicle_pct'      => 'required_if:split_type,percentage|numeric|min:0|max:100',
+            'sacco_pct'        => 'required_if:split_type,percentage|numeric|min:0|max:100',
+            'platform_pct'     => 'required|numeric|min:3|max:3',
+            // Lengo-mode fields
+            'daily_target'     => 'nullable|numeric|min:0',
+            'daily_sacco_levy' => 'nullable|numeric|min:0',
+            'notes'            => 'nullable|string',
+            'is_active'        => 'boolean',
         ]);
 
-        if (!empty($data['agency_id'])) {
-            $this->assertAgencyAllowed($request, $data['agency_id']);
+        $this->assertAgencyAllowed($request, $data['agency_id']);
+
+        // Validate percentage total when in percentage mode
+        if (($data['split_type'] ?? 'percentage') === 'percentage' && ($data['split_enabled'] ?? true)) {
+            $sum = ($data['vehicle_pct'] ?? 0) + ($data['sacco_pct'] ?? 0) + ($data['platform_pct'] ?? 3);
+            if (abs($sum - 100) > 0.01) {
+                return response()->json(['message' => "Percentages must sum to 100 (got {$sum})."], 422);
+            }
         }
 
-        $sum = $data['vehicle_pct'] + $data['sacco_pct'] + $data['platform_pct'];
-        if (abs($sum - 100) > 0.01) {
-            return response()->json(['message' => "Percentages must sum to 100 (got {$sum})."], 422);
-        }
-
-        // Upsert: one config per agency (or global)
         $config = SplitConfig::updateOrCreate(
-            ['agency_id' => $data['agency_id'] ?? null],
+            ['agency_id' => $data['agency_id']],
             $data,
         );
 
         return response()->json($config, $config->wasRecentlyCreated ? 201 : 200);
+    }
+
+    // ── Daily Levy (Lengo mode) ───────────────────────────────────────────────
+
+    /**
+     * Deduct the configured flat daily SACCO levy from every vehicle wallet
+     * that belongs to the agency and transfer it to the SACCO wallet.
+     * Only valid when split_type = 'lengo'.
+     */
+    public function applyDailyLevy(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'agency_id' => 'required|string|exists:agencies,agency_id',
+        ]);
+
+        $this->assertAgencyAllowed($request, $data['agency_id']);
+
+        try {
+            $results = $this->ledger->applyDailyLevy($data['agency_id'], (string) $request->user()?->id);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $applied    = collect($results)->where('status', 'applied')->count();
+        $skipped    = collect($results)->where('status', 'insufficient_balance')->count();
+
+        return response()->json([
+            'message'  => "{$applied} vehicle(s) levied, {$skipped} skipped (insufficient balance).",
+            'results'  => $results,
+        ]);
     }
 
     // ── Wallets ───────────────────────────────────────────────────────────────
@@ -81,20 +119,32 @@ class ConsoleLedgerController extends Controller
             $q->where('entity_type', $request->entity_type);
         }
 
-        if ($request->filled('agency_id')) {
+        // Agency-scoped: operators see only their agency wallet + their vehicles' wallets
+        $scope = $this->agencyScope($request);
+        if ($scope !== null) {
+            $agencyIds  = $scope;
+            $vehicleIds = Vehicle::whereIn('agency_id', $agencyIds)
+                ->pluck('id')
+                ->map(fn ($id) => (string) $id);
+
+            $q->where(function ($sub) use ($agencyIds, $vehicleIds) {
+                $sub->where(fn ($q) => $q->where('entity_type', 'agency')->whereIn('entity_id', $agencyIds))
+                    ->orWhere(fn ($q) => $q->where('entity_type', 'vehicle')->whereIn('entity_id', $vehicleIds));
+            });
+        } elseif ($request->filled('agency_id')) {
             $agencyId   = $request->input('agency_id');
-            $vehicleIds = Vehicle::where('agency_id', $agencyId)->pluck('id')->map(fn($id) => (string) $id);
+            $vehicleIds = Vehicle::where('agency_id', $agencyId)->pluck('id')->map(fn ($id) => (string) $id);
 
             $q->where(function ($sub) use ($agencyId, $vehicleIds) {
-                $sub->where(fn($q) => $q->where('entity_type', 'agency')->where('entity_id', $agencyId))
-                    ->orWhere(fn($q) => $q->where('entity_type', 'vehicle')->whereIn('entity_id', $vehicleIds));
+                $sub->where(fn ($q) => $q->where('entity_type', 'agency')->where('entity_id', $agencyId))
+                    ->orWhere(fn ($q) => $q->where('entity_type', 'vehicle')->whereIn('entity_id', $vehicleIds));
             });
         }
 
         $rows = $q->orderByDesc('balance')->get();
 
-        $vehicleIds = $rows->where('entity_type', 'vehicle')->pluck('entity_id')->map(fn($id) => (int) $id);
-        $plates = Vehicle::whereIn('id', $vehicleIds)->pluck('plate', 'id');
+        $vehicleIds = $rows->where('entity_type', 'vehicle')->pluck('entity_id')->map(fn ($id) => (int) $id);
+        $plates     = Vehicle::whereIn('id', $vehicleIds)->pluck('plate', 'id');
 
         $wallets = $rows->map(function (Wallet $w) use ($plates) {
             $label = match ($w->entity_type) {
@@ -109,7 +159,7 @@ class ConsoleLedgerController extends Controller
         return response()->json($wallets);
     }
 
-    public function walletTransactions(Request $request, int $id): JsonResponse
+    public function walletTransactions(Request $request, string $id): JsonResponse
     {
         $wallet = Wallet::findOrFail($id);
 
@@ -130,15 +180,9 @@ class ConsoleLedgerController extends Controller
 
         $q = $wallet->transactions()->latest('created_at');
 
-        if ($request->filled('type')) {
-            $q->where('type', $request->type);
-        }
-        if ($request->filled('from')) {
-            $q->where('created_at', '>=', $request->from);
-        }
-        if ($request->filled('to')) {
-            $q->where('created_at', '<=', $request->to);
-        }
+        if ($request->filled('type'))  { $q->where('type', $request->type); }
+        if ($request->filled('from'))  { $q->where('created_at', '>=', $request->from); }
+        if ($request->filled('to'))    { $q->where('created_at', '<=', $request->to); }
 
         return response()->json([
             'wallet'       => $wallet,
@@ -150,13 +194,7 @@ class ConsoleLedgerController extends Controller
 
     public function fleetRevenue(Request $request): JsonResponse
     {
-        $period = $request->input('period', '30d');
-
-        $days = match ($period) {
-            '7d'  => 7,
-            '90d' => 90,
-            default => 30,
-        };
+        $days = $this->periodDays($request);
 
         $q = DB::table('payment_splits as ps')
             ->join('vehicles as v', 'v.id', '=', 'ps.vehicle_id')
@@ -164,9 +202,7 @@ class ConsoleLedgerController extends Controller
             ->where('ps.created_at', '>=', now()->subDays($days))
             ->groupBy('ps.vehicle_id', 'v.plate', 'v.route_id')
             ->select([
-                'ps.vehicle_id',
-                'v.plate',
-                'v.route_id',
+                'ps.vehicle_id', 'v.plate', 'v.route_id',
                 DB::raw('SUM(ps.amount_total) as total_revenue'),
                 DB::raw('COUNT(*) as split_count'),
                 DB::raw('MAX(ps.created_at) as last_split_at'),
@@ -174,23 +210,15 @@ class ConsoleLedgerController extends Controller
             ->orderByDesc('total_revenue');
 
         $scope = $this->agencyScope($request);
-        if ($scope !== null) {
-            $q->whereIn('v.agency_id', $scope);
-        } elseif ($request->filled('agency_id')) {
-            $q->where('v.agency_id', $request->input('agency_id'));
-        }
+        if ($scope !== null)                      { $q->whereIn('v.agency_id', $scope); }
+        elseif ($request->filled('agency_id'))    { $q->where('v.agency_id', $request->input('agency_id')); }
 
         return response()->json($q->get());
     }
 
     public function vehicleRevenue(Request $request, int $id): JsonResponse
     {
-        $days = match ($request->input('period', '30d')) {
-            '7d'  => 7,
-            '90d' => 90,
-            default => 30,
-        };
-
+        $days   = $this->periodDays($request);
         $splits = PaymentSplit::where('vehicle_id', $id)
             ->where('status', 'completed')
             ->where('created_at', '>=', now()->subDays($days))
@@ -200,22 +228,17 @@ class ConsoleLedgerController extends Controller
         $wallet = Wallet::where('entity_type', 'vehicle')->where('entity_id', (string) $id)->first();
 
         return response()->json([
-            'wallet'         => $wallet,
-            'total_revenue'  => $splits->sum('vehicle_amount'),
-            'total_gross'    => $splits->sum('amount_total'),
-            'split_count'    => $splits->count(),
-            'splits'         => $splits,
+            'wallet'        => $wallet,
+            'total_revenue' => $splits->sum('vehicle_amount'),
+            'total_gross'   => $splits->sum('amount_total'),
+            'split_count'   => $splits->count(),
+            'splits'        => $splits,
         ]);
     }
 
     public function routeRevenue(Request $request): JsonResponse
     {
-        $days = match ($request->input('period', '30d')) {
-            '7d'  => 7,
-            '90d' => 90,
-            default => 30,
-        };
-
+        $days  = $this->periodDays($request);
         $scope = $this->agencyScope($request);
 
         $q = DB::table('payment_splits as ps')
@@ -234,26 +257,16 @@ class ConsoleLedgerController extends Controller
             ])
             ->orderByDesc('total_gross');
 
-        if ($scope !== null) {
-            $q->whereIn('v.agency_id', $scope);
-        } elseif ($request->filled('agency_id')) {
-            $q->where('v.agency_id', $request->input('agency_id'));
-        }
+        if ($scope !== null)                   { $q->whereIn('v.agency_id', $scope); }
+        elseif ($request->filled('agency_id')) { $q->where('v.agency_id', $request->input('agency_id')); }
 
         return response()->json($q->get());
     }
 
-    // ── Revenue Trend ─────────────────────────────────────────────────────────
-
     public function revenueTrend(Request $request): JsonResponse
     {
-        $period = $request->input('period', '30d');
-
-        $days = match ($period) {
-            '7d'  => 7,
-            '90d' => 90,
-            default => 30,
-        };
+        $days  = $this->periodDays($request);
+        $scope = $this->agencyScope($request);
 
         $q = DB::table('payment_splits as ps')
             ->join('vehicles as v', 'v.id', '=', 'ps.vehicle_id')
@@ -269,17 +282,13 @@ class ConsoleLedgerController extends Controller
             ])
             ->orderBy(DB::raw('DATE(ps.created_at)'));
 
-        $scope = $this->agencyScope($request);
-        if ($scope !== null) {
-            $q->whereIn('v.agency_id', $scope);
-        } elseif ($request->filled('agency_id')) {
-            $q->where('v.agency_id', $request->input('agency_id'));
-        }
+        if ($scope !== null)                   { $q->whereIn('v.agency_id', $scope); }
+        elseif ($request->filled('agency_id')) { $q->where('v.agency_id', $request->input('agency_id')); }
 
         return response()->json($q->get());
     }
 
-    // ── Test Split (dry-run, no real money) ───────────────────────────────────
+    // ── Test Split (dry-run) ──────────────────────────────────────────────────
 
     public function testSplit(Request $request): JsonResponse
     {
@@ -298,11 +307,22 @@ class ConsoleLedgerController extends Controller
         );
 
         return response()->json([
-            'message'          => 'Test split recorded successfully.',
-            'split'            => $split,
-            'vehicle_amount'   => $split->vehicle_amount,
-            'sacco_amount'     => $split->sacco_amount,
-            'platform_amount'  => $split->platform_amount,
+            'message'         => 'Test split recorded successfully.',
+            'split'           => $split,
+            'vehicle_amount'  => $split->vehicle_amount,
+            'sacco_amount'    => $split->sacco_amount,
+            'platform_amount' => $split->platform_amount,
         ], 201);
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    private function periodDays(Request $request): int
+    {
+        return match ($request->input('period', '30d')) {
+            '7d'  => 7,
+            '90d' => 90,
+            default => 30,
+        };
     }
 }

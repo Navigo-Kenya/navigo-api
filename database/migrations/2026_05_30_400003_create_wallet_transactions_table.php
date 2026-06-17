@@ -9,13 +9,15 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('wallet_transactions', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('wallet_id')->constrained('wallets')->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->uuid('wallet_id');
+            $table->foreign('wallet_id')->references('id')->on('wallets')->cascadeOnDelete();
             $table->enum('type', ['credit', 'debit', 'hold', 'release']);
             $table->decimal('amount', 12, 2);
             $table->decimal('balance_after', 12, 2);
             $table->string('reference', 255)->nullable();
-            $table->foreignId('payment_id')->nullable()->comment('FK to payment_splits added after that table is created');
+            // FK to payment_splits added after that table is created (payment_splits.id is bigint)
+            $table->unsignedBigInteger('payment_id')->nullable();
             $table->string('description', 500)->nullable();
             $table->string('created_by', 255)->nullable();
             $table->timestamp('created_at')->useCurrent();

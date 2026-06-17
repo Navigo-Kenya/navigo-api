@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('wallets', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
             $table->enum('entity_type', ['vehicle', 'agency', 'platform']);
             $table->string('entity_id', 255);
             $table->decimal('balance', 12, 2)->default(0.00);
