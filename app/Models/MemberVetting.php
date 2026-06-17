@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class MemberVetting extends Model
 {
+    protected $table = 'member_vetting';
+
     public $timestamps = false;
 
     protected $fillable = [

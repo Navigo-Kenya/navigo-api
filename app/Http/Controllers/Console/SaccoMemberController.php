@@ -16,7 +16,7 @@ class SaccoMemberController extends Controller
     public function index(Request $request): JsonResponse
     {
         $q = SaccoMember::query()
-            ->withCount('fees')
+            ->withCount(['fees', 'documents'])
             ->selectRaw('sacco_members.*, (SELECT COALESCE(SUM(amount),0) FROM member_fees WHERE member_id = sacco_members.id) as total_fees_paid');
 
         $this->scopeQuery($q, $request);
