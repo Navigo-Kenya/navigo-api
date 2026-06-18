@@ -109,6 +109,24 @@ class RoleSeeder extends Seeder
             'ops.view', 'ops.manage_incidents',
         ]);
 
+        // ── member_a ─────────────────────────────────────────────────────────────
+        // Class A (Full Member / Vehicle Owner) — sees only their own data
+        $member_a = Role::firstOrCreate(['name' => 'member_a', 'guard_name' => 'web']);
+        $member_a->syncPermissions([
+            'dashboard.view',
+            'profile.view',
+            'fleet.view.own',
+            'ledger.view.own',
+        ]);
+
+        // ── member_b ─────────────────────────────────────────────────────────────
+        // Class B (Associate Member) — sees only their own membership
+        $member_b = Role::firstOrCreate(['name' => 'member_b', 'guard_name' => 'web']);
+        $member_b->syncPermissions([
+            'dashboard.view',
+            'profile.view',
+        ]);
+
         // ── custom ───────────────────────────────────────────────────────────────
         // No permissions by default — everything is hand-assigned per user
         Role::firstOrCreate(['name' => 'custom', 'guard_name' => 'web']);

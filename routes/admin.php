@@ -439,19 +439,24 @@ Route::prefix('v1/console')
         // ── Fleet Broadcast ───────────────────────────────────────────────────
         Route::post('broadcasts/fleet', [BroadcastNotificationController::class, 'broadcastToFleet'])->middleware('role:notifications.send');
 
-        // ── SACCO Members ─────────────────────────────────────────────────────
+        // ── SACCO Members (member self-service) ───────────────────────────────
+        Route::get('members/me',                                 [SaccoMemberController::class, 'me'])              ->middleware('role:profile.view');
+        Route::get('members/me/fees',                            [SaccoMemberController::class, 'meeFees'])         ->middleware('role:profile.view');
+
+        // ── SACCO Members (operator management) ───────────────────────────────
         Route::get('members',                                    [SaccoMemberController::class, 'index'])           ->middleware('role:members.view');
         Route::get('members/export',                             [SaccoMemberController::class, 'export'])          ->middleware('role:members.view');
         Route::post('members',                                   [SaccoMemberController::class, 'store'])           ->middleware('role:members.manage');
-        Route::get('members/{member}',                           [SaccoMemberController::class, 'show'])            ->middleware('role:members.view');
-        Route::patch('members/{member}',                         [SaccoMemberController::class, 'update'])          ->middleware('role:members.manage');
+        Route::get('members/{member}',                           [SaccoMemberController::class, 'show'])            ->middleware('role:members.view|profile.view');
+        Route::patch('members/{member}',                         [SaccoMemberController::class, 'update'])          ->middleware('role:members.manage|profile.view');
         Route::post('members/{member}/vet',                      [SaccoMemberController::class, 'vet'])             ->middleware('role:members.manage');
         Route::post('members/{member}/activate',                 [SaccoMemberController::class, 'activate'])        ->middleware('role:members.manage');
         Route::post('members/{member}/suspend',                  [SaccoMemberController::class, 'suspend'])         ->middleware('role:members.manage');
         Route::post('members/{member}/reinstate',                [SaccoMemberController::class, 'reinstate'])       ->middleware('role:members.manage');
-        Route::get('members/{member}/fees',                      [SaccoMemberController::class, 'fees'])            ->middleware('role:members.view');
+        Route::post('members/{member}/account',                  [SaccoMemberController::class, 'createAccount'])   ->middleware('role:members.manage');
+        Route::get('members/{member}/fees',                      [SaccoMemberController::class, 'fees'])            ->middleware('role:members.view|profile.view');
         Route::post('members/{member}/fees',                     [SaccoMemberController::class, 'recordFee'])       ->middleware('role:members.manage');
-        Route::post('members/{member}/documents',                [SaccoMemberController::class, 'uploadDocument'])  ->middleware('role:members.manage');
+        Route::post('members/{member}/documents',                [SaccoMemberController::class, 'uploadDocument'])  ->middleware('role:members.manage|profile.view');
         Route::delete('members/{member}/documents/{doc}',        [SaccoMemberController::class, 'deleteDocument'])  ->middleware('role:members.manage');
 
         // ── Access Management (RBAC) ───────────────────────────────────────────

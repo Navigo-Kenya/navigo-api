@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Auth;
 
 class SaccoMember extends Model
 {
@@ -12,7 +14,7 @@ class SaccoMember extends Model
         'agency_id', 'membership_no', 'membership_class', 'status',
         'name', 'phone', 'email', 'national_id', 'kra_pin', 'm_pesa_number',
         'vehicle_owner_id', 'voting_rights', 'share_capital_paid',
-        'notes', 'joined_at', 'created_by',
+        'notes', 'joined_at', 'created_by', 'user_id',
     ];
 
     protected $casts = [
@@ -49,6 +51,23 @@ class SaccoMember extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /** Return the SaccoMember linked to the currently authenticated user, or null. */
+    public static function forAuthUser(): ?static
+    {
+        return static::where('user_id', Auth::id())->first();
+    }
+
+    /** Scope query to only the member record owned by the authenticated user. */
+    public function scopeOwnedByAuth(Builder $query): void
+    {
+        $query->where('user_id', Auth::id());
     }
 
     public static function generateMembershipNo(string $agencyId): string

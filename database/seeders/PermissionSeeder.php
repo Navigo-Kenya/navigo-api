@@ -103,9 +103,14 @@ class PermissionSeeder extends Seeder
             'access.view',
             'access.manage',
 
-            // SACCO members
+            // SACCO members (management — operator roles)
             'members.view',
             'members.manage',
+
+            // Member self-service (member_a / member_b roles)
+            'profile.view',       // access own membership profile
+            'fleet.view.own',     // Class A: view own vehicles only
+            'ledger.view.own',    // Class A: view own vehicle earnings only
         ];
 
         foreach ($permissions as $name) {

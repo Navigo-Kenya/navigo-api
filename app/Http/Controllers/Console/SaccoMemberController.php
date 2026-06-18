@@ -7,9 +7,12 @@ use App\Models\MemberDocument;
 use App\Models\MemberFee;
 use App\Models\MemberVetting;
 use App\Models\SaccoMember;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class SaccoMemberController extends Controller
 {
@@ -68,12 +71,62 @@ class SaccoMemberController extends Controller
         return response()->json($member, 201);
     }
 
-    public function show(Request $request, SaccoMember $member): JsonResponse
+    /** GET /members/me/fees — returns fee history for the authenticated member. */
+    public function meeFees(Request $request): JsonResponse
+    {
+        $member = SaccoMember::where('user_id', $request->user()->id)->firstOrFail();
+        return response()->json($member->fees()->orderBy('paid_at', 'desc')->get());
+    }
+
+    /** GET /members/me — returns the authenticated member's own record. */
+    public function me(Request $request): JsonResponse
+    {
+        $member = SaccoMember::where('user_id', $request->user()->id)
+            ->with(['vehicleOwner.vehicles', 'vettings.vetter:id,name', 'fees', 'documents'])
+            ->firstOrFail();
+
+        $member->total_fees_paid = $member->totalFeesPaid();
+
+        return response()->json($member);
+    }
+
+    /** POST /members/{member}/account — creates a console user account for this member. */
+    public function createAccount(Request $request, SaccoMember $member): JsonResponse
     {
         $this->assertAgencyAllowed($request, $member->agency_id);
 
-        $member->load(['vehicleOwner.vehicles', 'vettings.vetter:id,name', 'fees', 'documents']);
-        $member->append([]);
+        abort_if($member->user_id !== null, 422, 'This member already has a linked account.');
+
+        $data = $request->validate([
+            'email' => 'required|email|max:255|unique:users,email',
+        ]);
+
+        $role = $member->membership_class === 'class_a' ? 'member_a' : 'member_b';
+
+        $user = User::create([
+            'name'     => $member->name,
+            'email'    => $data['email'],
+            'password' => Hash::make(Str::random(16)),
+        ]);
+
+        $user->assignRole($role);
+
+        $member->update(['user_id' => $user->id]);
+
+        return response()->json($member->fresh(['user:id,name,email']));
+    }
+
+    public function show(Request $request, SaccoMember $member): JsonResponse
+    {
+        // Members may only view their own record
+        if ($request->user()->hasAnyRole(['member_a', 'member_b'])) {
+            $ownId = SaccoMember::where('user_id', $request->user()->id)->value('id');
+            abort_if($ownId !== $member->id, 403, 'You can only view your own membership record.');
+        } else {
+            $this->assertAgencyAllowed($request, $member->agency_id);
+        }
+
+        $member->load(['vehicleOwner.vehicles', 'vettings.vetter:id,name', 'fees', 'documents', 'user:id,name,email']);
         $member->total_fees_paid = $member->totalFeesPaid();
 
         return response()->json($member);
@@ -81,7 +134,12 @@ class SaccoMemberController extends Controller
 
     public function update(Request $request, SaccoMember $member): JsonResponse
     {
-        $this->assertAgencyAllowed($request, $member->agency_id);
+        if ($request->user()->hasAnyRole(['member_a', 'member_b'])) {
+            $ownId = SaccoMember::where('user_id', $request->user()->id)->value('id');
+            abort_if($ownId !== $member->id, 403);
+        } else {
+            $this->assertAgencyAllowed($request, $member->agency_id);
+        }
 
         $data = $request->validate([
             'name'             => 'sometimes|string|max:255',
