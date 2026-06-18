@@ -7,6 +7,7 @@ use App\Models\Agency;
 use App\Models\Route;
 use App\Models\SplitConfig;
 use App\Models\StaffInvitation;
+use App\Models\User;
 use App\Models\Wallet;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -181,6 +182,31 @@ class ConsoleAgencyController extends Controller
         $agency->operatedRoutes()->detach($routeId);
 
         return response()->json(['message' => 'Route removed.']);
+    }
+
+    public function impersonate(Request $request, string $id): JsonResponse
+    {
+        $agency = Agency::findOrFail($id);
+
+        $owner = User::whereHas('roles', fn($q) => $q->where('name', 'operator_owner'))
+            ->whereHas('agencyScopes', fn($q) => $q->where('agency_id', $agency->agency_id))
+            ->with('agencyScopes')
+            ->first();
+
+        abort_if(
+            !$owner,
+            404,
+            "No operator_owner account found for {$agency->agency_name}. Invite one first via Access → Staff Invitations."
+        );
+
+        $token = $owner->createToken('console-impersonation', ['*'], now()->addHours(8))->plainTextToken;
+
+        $userData                  = $owner->load('agencyScopes')->toArray();
+        $userData['permissions']   = $owner->getEffectivePermissions();
+        $userData['agency_scopes'] = $owner->agencyScopes->pluck('agency_id')->toArray();
+        $userData['console_role']  = $owner->roles->first()?->name ?? $owner->role;
+
+        return response()->json(['token' => $token, 'user' => $userData]);
     }
 
     public function completeOnboarding(Request $request, string $id): JsonResponse

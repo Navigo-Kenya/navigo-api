@@ -135,6 +135,7 @@ Route::prefix('v1/console')
         Route::get('agencies/{id}/available-routes',          [ConsoleAgencyController::class, 'availableRoutes']);
         Route::post('agencies/{id}/operated-routes',          [ConsoleAgencyController::class, 'claimRoutes'])->middleware('role:agencies.edit');
         Route::delete('agencies/{id}/operated-routes/{route}', [ConsoleAgencyController::class, 'unclaimRoute'])->middleware('role:agencies.edit');
+        Route::post('agencies/{id}/impersonate',               [ConsoleAgencyController::class, 'impersonate'])->middleware('role:access.impersonate');
 
         // ── Staff Invitations ─────────────────────────────────────────────────
         // index/invite/revoke use agencies.edit so operator_owner can manage their own staff.

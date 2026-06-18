@@ -102,6 +102,7 @@ class PermissionSeeder extends Seeder
             // RBAC management (this section)
             'access.view',
             'access.manage',
+            'access.impersonate', // switch into any operator_owner account (superadmin / hopln_admin only)
 
             // SACCO members (management — operator roles)
             'members.view',
