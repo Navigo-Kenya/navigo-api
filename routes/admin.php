@@ -74,6 +74,9 @@ Route::prefix('v1/console')
         Route::get('dashboard/retention-cohort',        [DashboardController::class, 'retentionCohort']);
         Route::get('dashboard/fleet-pulse',             [DashboardController::class, 'fleetPulse']);
         Route::get('dashboard/compliance-overview',     [DashboardController::class, 'complianceOverview']);
+        Route::get('dashboard/contribution-breakdown',  [DashboardController::class, 'contributionBreakdown']);
+        Route::get('dashboard/moderation-queue-age',    [DashboardController::class, 'moderationQueueAge']);
+        Route::get('dashboard/agency-timeline',         [DashboardController::class, 'agencyTimeline']);
         Route::get('activity',                   [DashboardController::class, 'activity']);
         Route::get('system-health',              [DashboardController::class, 'systemHealth']);
 

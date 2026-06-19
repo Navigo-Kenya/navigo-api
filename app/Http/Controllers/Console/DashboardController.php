@@ -269,11 +269,14 @@ class DashboardController extends Controller
         ]);
     }
 
-    public function userGrowth(): JsonResponse
+    public function userGrowth(Request $request): JsonResponse
     {
-        $rows = Cache::remember('console:user_growth', 300, fn () =>
+        $days = (int) $request->input('period', 30);
+        $days = in_array($days, [7, 14, 30, 90]) ? $days : 30;
+
+        $rows = Cache::remember("console:user_growth:{$days}", 300, fn () =>
             DB::table('users')
-                ->where('created_at', '>=', now()->subDays(30))
+                ->where('created_at', '>=', now()->subDays($days))
                 ->selectRaw("DATE(created_at) as date, COUNT(*) as new_users")
                 ->groupBy('date')
                 ->orderBy('date')
@@ -281,14 +284,14 @@ class DashboardController extends Controller
                 ->keyBy('date')
         );
 
-        $baseline = (int) Cache::remember('console:user_baseline', 300, fn () =>
-            DB::table('users')->where('created_at', '<', now()->subDays(30))->count()
+        $baseline = (int) Cache::remember("console:user_baseline:{$days}", 300, fn () =>
+            DB::table('users')->where('created_at', '<', now()->subDays($days))->count()
         );
 
         $result  = [];
         $running = $baseline;
 
-        for ($i = 29; $i >= 0; $i--) {
+        for ($i = $days - 1; $i >= 0; $i--) {
             $date    = now()->subDays($i)->toDateString();
             $newDay  = (int) ($rows->get($date)?->new_users ?? 0);
             $running += $newDay;
@@ -321,12 +324,15 @@ class DashboardController extends Controller
         return response()->json(['type' => 'FeatureCollection', 'features' => $features]);
     }
 
-    public function journeyHeatmap(): JsonResponse
+    public function journeyHeatmap(Request $request): JsonResponse
     {
-        $grid = Cache::remember('console:journey_heatmap', 300, function () {
+        $days = (int) $request->input('period', 28);
+        $days = min(max($days, 7), 90);
+
+        $grid = Cache::remember("console:journey_heatmap:{$days}", 300, function () use ($days) {
             try {
                 return DB::table('journey_logs')
-                    ->where('created_at', '>=', now()->subDays(28))
+                    ->where('created_at', '>=', now()->subDays($days))
                     ->selectRaw("EXTRACT(DOW FROM created_at)::int AS dow, EXTRACT(HOUR FROM created_at)::int AS hour, COUNT(*) AS count")
                     ->groupByRaw('dow, hour')
                     ->orderByRaw('dow, hour')
@@ -339,13 +345,16 @@ class DashboardController extends Controller
         return response()->json($grid->values());
     }
 
-    public function topRoutes(): JsonResponse
+    public function topRoutes(Request $request): JsonResponse
     {
-        $routes = Cache::remember('console:top_routes', 300, function () {
+        $days = (int) $request->input('period', 7);
+        $days = in_array($days, [7, 14, 30, 90]) ? $days : 7;
+
+        $routes = Cache::remember("console:top_routes:{$days}", 300, function () use ($days) {
             try {
                 return DB::table('journey_logs')
                     ->join('routes', 'routes.route_id', '=', 'journey_logs.route_id')
-                    ->where('journey_logs.created_at', '>=', now()->subDays(7))
+                    ->where('journey_logs.created_at', '>=', now()->subDays($days))
                     ->selectRaw('journey_logs.route_id, routes.route_short_name, routes.route_long_name, COUNT(*) AS count')
                     ->groupBy('journey_logs.route_id', 'routes.route_short_name', 'routes.route_long_name')
                     ->orderByRaw('count DESC')
@@ -427,12 +436,21 @@ class DashboardController extends Controller
         return response()->json(['checks' => $checks, 'overall' => $overall]);
     }
 
-    public function contributorLeaderboard(): JsonResponse
+    public function contributorLeaderboard(Request $request): JsonResponse
     {
-        $board = Cache::remember('console:contrib_leaderboard', 300, function () {
-            return DB::table('contributions')
+        $days = (int) $request->input('period', 0);
+        $days = in_array($days, [0, 7, 30, 90]) ? $days : 0;
+
+        $board = Cache::remember("console:contrib_leaderboard:{$days}", 300, function () use ($days) {
+            $q = DB::table('contributions')
                 ->where('contributions.status', 'approved')
-                ->join('users', 'users.id', '=', 'contributions.user_id')
+                ->join('users', 'users.id', '=', 'contributions.user_id');
+
+            if ($days > 0) {
+                $q->where('contributions.updated_at', '>=', now()->subDays($days));
+            }
+
+            return $q
                 ->selectRaw('contributions.user_id, users.name, users.email, COUNT(*) AS approved_count, MAX(contributions.updated_at) AS last_approved_at')
                 ->groupBy('contributions.user_id', 'users.name', 'users.email')
                 ->orderByRaw('approved_count DESC')
@@ -562,6 +580,86 @@ class DashboardController extends Controller
             'total_vehicles' => $totalVehicles,
             'by_agency'      => $byAgency->values(),
         ]);
+    }
+
+    public function contributionBreakdown(Request $request): JsonResponse
+    {
+        $days = (int) $request->input('period', 30);
+        $days = in_array($days, [7, 14, 30, 90]) ? $days : 30;
+
+        $rows = Cache::remember("console:contrib_breakdown:{$days}", 300, function () use ($days) {
+            return DB::table('contributions')
+                ->where('created_at', '>=', now()->subDays($days))
+                ->selectRaw('type, status, COUNT(*) AS count')
+                ->groupBy('type', 'status')
+                ->get();
+        });
+
+        $grouped = [];
+        foreach ($rows as $row) {
+            if (!isset($grouped[$row->type])) {
+                $grouped[$row->type] = ['type' => $row->type, 'total' => 0, 'approved' => 0, 'rejected' => 0, 'pending' => 0];
+            }
+            $grouped[$row->type]['total'] += (int) $row->count;
+            if (in_array($row->status, ['approved', 'rejected', 'pending'])) {
+                $grouped[$row->type][$row->status] = (int) $row->count;
+            }
+        }
+        usort($grouped, fn ($a, $b) => $b['total'] - $a['total']);
+
+        return response()->json(array_values($grouped));
+    }
+
+    public function moderationQueueAge(): JsonResponse
+    {
+        $data = Cache::remember('console:moderation_queue_age', 60, function () {
+            $row = DB::table('contributions')
+                ->where('status', 'pending')
+                ->selectRaw("COUNT(*) AS total, AVG(EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600) AS avg_age_hours, MAX(EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600) AS oldest_hours")
+                ->first();
+
+            return [
+                'total_pending' => (int)   ($row->total        ?? 0),
+                'avg_age_hours' => round(   $row->avg_age_hours ?? 0, 1),
+                'oldest_hours'  => round(   $row->oldest_hours  ?? 0, 1),
+            ];
+        });
+
+        return response()->json($data);
+    }
+
+    public function agencyTimeline(): JsonResponse
+    {
+        $data = Cache::remember('console:agency_timeline', 600, function () {
+            $rows = DB::table('agencies')
+                ->where('created_at', '>=', now()->subMonths(12))
+                ->selectRaw("TO_CHAR(created_at, 'YYYY-MM') AS month, COUNT(*) AS count")
+                ->groupByRaw("TO_CHAR(created_at, 'YYYY-MM')")
+                ->orderByRaw('month')
+                ->get()
+                ->keyBy('month');
+
+            $baseline = (int) DB::table('agencies')
+                ->where('created_at', '<', now()->subMonths(12))
+                ->count();
+
+            $result  = [];
+            $running = $baseline;
+            for ($i = 11; $i >= 0; $i--) {
+                $month    = now()->subMonths($i)->format('Y-m');
+                $newMonth = (int) ($rows->get($month)?->count ?? 0);
+                $running += $newMonth;
+                $result[] = [
+                    'month'      => $month,
+                    'label'      => now()->subMonths($i)->format('M y'),
+                    'count'      => $newMonth,
+                    'cumulative' => $running,
+                ];
+            }
+            return $result;
+        });
+
+        return response()->json($data);
     }
 
     public function complianceOverview(): JsonResponse
