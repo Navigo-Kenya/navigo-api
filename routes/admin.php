@@ -58,11 +58,24 @@ Route::prefix('v1/console')
     ->group(function () {
 
         // ── Dashboard ──────────────────────────────────────────────────────────
-        Route::get('dashboard',               [DashboardController::class, 'overview']);
-        Route::get('dashboard/agency-stats',  [DashboardController::class, 'agencyStats']);
-        Route::get('dashboard/otp-trend',     [DashboardController::class, 'otpTrend']);
-        Route::get('activity',                [DashboardController::class, 'activity']);
-        Route::get('system-health',           [DashboardController::class, 'systemHealth']);
+        Route::get('dashboard',                  [DashboardController::class, 'overview']);
+        Route::get('dashboard/agency-stats',     [DashboardController::class, 'agencyStats']);
+        Route::get('dashboard/otp-trend',        [DashboardController::class, 'otpTrend']);
+        Route::get('dashboard/network-stats',           [DashboardController::class, 'networkStats']);
+        Route::get('dashboard/user-growth',             [DashboardController::class, 'userGrowth']);
+        Route::get('dashboard/coverage-stops',          [DashboardController::class, 'coverageStops']);
+        Route::get('dashboard/journey-heatmap',         [DashboardController::class, 'journeyHeatmap']);
+        Route::get('dashboard/top-routes',              [DashboardController::class, 'topRoutes']);
+        Route::get('dashboard/app-versions',            [DashboardController::class, 'appVersions']);
+        Route::get('dashboard/gtfs-quality',            [DashboardController::class, 'gtfsQuality']);
+        Route::get('dashboard/contributor-leaderboard', [DashboardController::class, 'contributorLeaderboard']);
+        Route::get('dashboard/platform-revenue',        [DashboardController::class, 'platformRevenue']);
+        Route::get('dashboard/onboarding-funnel',       [DashboardController::class, 'onboardingFunnel']);
+        Route::get('dashboard/retention-cohort',        [DashboardController::class, 'retentionCohort']);
+        Route::get('dashboard/fleet-pulse',             [DashboardController::class, 'fleetPulse']);
+        Route::get('dashboard/compliance-overview',     [DashboardController::class, 'complianceOverview']);
+        Route::get('activity',                   [DashboardController::class, 'activity']);
+        Route::get('system-health',              [DashboardController::class, 'systemHealth']);
 
         // ── Users ──────────────────────────────────────────────────────────────
         Route::get('users/export',           [ConsoleUserController::class, 'export']);
