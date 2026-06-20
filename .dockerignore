@@ -16,13 +16,13 @@ Dockerfile
 vendor
 node_modules
 
-# Runtime-generated storage (managed via Docker volume at /var/www/storage)
-storage/logs
-storage/framework/cache
-storage/framework/sessions
-storage/framework/views
-storage/app/gtfs
-storage/app/public
+# Runtime-generated storage (Except gtfs folder)
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/app/public/*
+storage/app/private/*
 
 # Test infrastructure
 tests
