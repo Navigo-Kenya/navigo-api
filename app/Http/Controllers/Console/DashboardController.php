@@ -306,7 +306,7 @@ class DashboardController extends Controller
         $features = Cache::remember('console:coverage_stops', 600, function () {
             try {
                 return DB::table('stops')
-                    ->selectRaw('stop_name, ST_X(location::geometry) as lng, ST_Y(location::geometry) as lat')
+                    ->selectRaw('name as stop_name, ST_X(location::geometry) as lng, ST_Y(location::geometry) as lat')
                     ->limit(2000)
                     ->get()
                     ->map(fn ($s) => [
@@ -401,7 +401,7 @@ class DashboardController extends Controller
     {
         $checks = Cache::remember('console:gtfs_quality', 600, function () {
             $stopsTotal    = max(1, DB::table('stops')->count());
-            $stopsNamed    = DB::table('stops')->whereNotNull('stop_name')->where('stop_name', '!=', '')->count();
+            $stopsNamed    = DB::table('stops')->whereNotNull('name')->where('name', '!=', '')->count();
             $stopsGeocoded = DB::table('stops')->whereNotNull('location')->count();
 
             $routesTotal   = max(1, DB::table('routes')->count());
