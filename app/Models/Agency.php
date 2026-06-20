@@ -14,6 +14,15 @@ class Agency extends Model
 
     protected $guarded = [];
 
+    public function getLogoUrlAttribute(?string $value): ?string
+    {
+        if (!$value) return null;
+        if (preg_match('#/storage/(.+)$#', $value, $matches)) {
+            return url('/storage/' . $matches[1]);
+        }
+        return $value;
+    }
+
     public function routes(): HasMany
     {
         return $this->hasMany(Route::class, 'agency_id', 'agency_id');
