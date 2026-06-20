@@ -21,12 +21,13 @@ class SaccoMemberController extends Controller
 {
     private const COLUMN_MAP = [
         'Name'             => 'name',
-        'Phone'            => 'phone',
         'Email'            => 'email',
+        'Phone'            => 'phone',
         'National ID'      => 'national_id',
         'KRA PIN'          => 'kra_pin',
         'M-Pesa Number'    => 'm_pesa_number',
         'Membership Class' => 'membership_class',
+        'Joined Date'      => 'joined_at',
         'Notes'            => 'notes',
     ];
     public function index(Request $request): JsonResponse
@@ -355,8 +356,10 @@ class SaccoMemberController extends Controller
         $content = $service->sampleCsvContent(
             array_keys(self::COLUMN_MAP),
             [
-                ['Jane Kamau',   '0712345678', 'jane@example.com', '12345678', 'A001234X', '0712345678', 'Class A', ''],
-                ['Peter Otieno', '0723456789', '',                 '87654321', '',         '0723456789', 'Class B', 'Associate member'],
+                // joined_at present → imported as active (historical member)
+                ['Jane Kamau',   'jane@example.com', '0712345678', '12345678', 'A001234X', '0712345678', 'Class A', '2022-06-01', ''],
+                // joined_at empty → imported as pending_vetting (new member)
+                ['Peter Otieno', 'peter@example.com', '0723456789', '87654321', '', '0723456789', 'Class B', '', 'Associate member'],
             ]
         );
 
@@ -407,6 +410,11 @@ class SaccoMemberController extends Controller
                     default                                     => $classRaw,
                 };
 
+                $joinedAt = null;
+                if (! empty(trim($row['joined_at'] ?? ''))) {
+                    $joinedAt = \Carbon\Carbon::parse($row['joined_at'])->toDateString();
+                }
+
                 SaccoMember::create([
                     'agency_id'        => $agencyId,
                     'membership_class' => $class,
@@ -418,7 +426,8 @@ class SaccoMemberController extends Controller
                     'm_pesa_number'    => $row['m_pesa_number'] ?: null,
                     'notes'            => $row['notes'] ?: null,
                     'membership_no'    => SaccoMember::generateMembershipNo($agencyId),
-                    'status'           => 'pending_vetting',
+                    'status'           => $joinedAt ? 'active' : 'pending_vetting',
+                    'joined_at'        => $joinedAt,
                     'voting_rights'    => $class === 'class_a',
                     'created_by'       => $userId,
                 ]);
@@ -437,17 +446,30 @@ class SaccoMemberController extends Controller
                 $errors[] = 'Name is required';
             }
 
+            if (empty(trim($row['email'] ?? ''))) {
+                $errors[] = 'Email is required';
+            } elseif (! filter_var($row['email'], FILTER_VALIDATE_EMAIL)) {
+                $errors[] = 'Email is not valid';
+            }
+
             $classRaw = strtolower(preg_replace('/[\s_\-]/', '', $row['membership_class'] ?? ''));
             if (! in_array($classRaw, ['classa', 'classb', 'a', 'b'], true)) {
                 $errors[] = 'Membership Class must be "Class A" or "Class B"';
             }
 
-            if (! empty($row['email']) && ! filter_var($row['email'], FILTER_VALIDATE_EMAIL)) {
-                $errors[] = 'Email is not valid';
-            }
-
             if (! empty($row['phone']) && ! preg_match('/^[0-9+\s\-]{7,20}$/', $row['phone'])) {
                 $errors[] = 'Phone format is invalid';
+            }
+
+            if (! empty(trim($row['joined_at'] ?? ''))) {
+                try {
+                    $date = \Carbon\Carbon::parse($row['joined_at']);
+                    if ($date->isFuture()) {
+                        $errors[] = 'Joined Date cannot be in the future';
+                    }
+                } catch (\Throwable) {
+                    $errors[] = 'Joined Date must be a valid date (e.g. 2022-06-01)';
+                }
             }
 
             return $errors;

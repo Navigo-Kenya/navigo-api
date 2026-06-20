@@ -310,9 +310,12 @@ Route::prefix('v1/console')
         Route::delete('network/pathways/{id}', [ConsoleInteropController::class, 'destroyPathway'])->middleware('role:interop.edit');
 
         // ── Fleet — Vehicles & Drivers ────────────────────────────────────────
-        Route::get('vehicles',         [ConsoleVehicleController::class, 'index']);
-        Route::post('vehicles',        [ConsoleVehicleController::class, 'store'])->middleware('role:fleet.edit');
-        Route::get('vehicles/{id}',    [ConsoleVehicleController::class, 'show']);
+        Route::get('vehicles',                       [ConsoleVehicleController::class, 'index']);
+        Route::post('vehicles',                      [ConsoleVehicleController::class, 'store'])->middleware('role:fleet.edit');
+        Route::get('vehicles/import/sample',         [ConsoleVehicleController::class, 'importSample'])->middleware('role:fleet.edit');
+        Route::post('vehicles/import/preview',       [ConsoleVehicleController::class, 'importPreview'])->middleware('role:fleet.edit');
+        Route::post('vehicles/import/confirm',       [ConsoleVehicleController::class, 'importConfirm'])->middleware('role:fleet.edit');
+        Route::get('vehicles/{id}',                  [ConsoleVehicleController::class, 'show']);
         Route::patch('vehicles/{id}',  [ConsoleVehicleController::class, 'update'])->middleware('role:fleet.edit');
         Route::delete('vehicles/{id}', [ConsoleVehicleController::class, 'destroy'])->middleware('role:fleet.edit');
 
