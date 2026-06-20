@@ -153,8 +153,7 @@ class ImportService
             $headerIndex = null; // col index => field name
 
             foreach ($sheet->getRowIterator() as $row) {
-                $cells  = $row->getCells();
-                $values = array_map(fn ($c) => trim((string) $c->getValue()), $cells);
+                $values = array_map(fn ($v) => trim((string) $v), $row->toArray());
 
                 if ($headerIndex === null) {
                     $headerIndex = [];
