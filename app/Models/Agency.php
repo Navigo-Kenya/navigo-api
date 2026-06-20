@@ -17,11 +17,10 @@ class Agency extends Model
     public function getLogoUrlAttribute(?string $value): ?string
     {
         if (!$value) return null;
-        if (preg_match('#/storage/(.+)$#', $value, $matches)) {
-            return url('/storage/' . $matches[1]);
+        if (preg_match('#/(storage|uploads)/(.+)$#', $value, $matches)) {
+            return url("/{$matches[1]}/{$matches[2]}");
         }
         return $value;
-        
     }
 
     public function routes(): HasMany

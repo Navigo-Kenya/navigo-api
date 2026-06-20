@@ -53,12 +53,16 @@ class ConsoleAgencyController extends Controller
 
         $request->validate(['logo' => 'required|image|max:4096']);
 
-        $path = $request->file('logo')->store("agency-logos/{$agency->agency_id}", 'public');
-        $url  = Storage::disk('public')->url($path);
+        $path = $request->file('logo')->store("agency-logos/{$agency->agency_id}", 'public_uploads');
+        $url  = Storage::disk('public_uploads')->url($path);
 
-        if ($agency->logo_url) {
-            $old = str_replace(Storage::disk('public')->url(''), '', $agency->logo_url);
-            Storage::disk('public')->delete($old);
+        if ($agency->getRawOriginal('logo_url')) {
+            $old = $agency->getRawOriginal('logo_url');
+            if (preg_match('#/uploads/(.+)$#', $old, $m)) {
+                Storage::disk('public_uploads')->delete($m[1]);
+            } elseif (preg_match('#/storage/(.+)$#', $old, $m)) {
+                Storage::disk('public')->delete($m[1]);
+            }
         }
 
         $agency->update(['logo_url' => $url]);
