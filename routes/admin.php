@@ -144,6 +144,7 @@ Route::prefix('v1/console')
         Route::get('agencies',                              [ConsoleAgencyController::class, 'index']);
         Route::post('agencies',                             [ConsoleAgencyController::class, 'store'])->middleware('role:agencies.create');
         Route::patch('agencies/{id}',                       [ConsoleAgencyController::class, 'update'])->middleware('role:agencies.edit');
+        Route::post('agencies/{id}/logo',                   [ConsoleAgencyController::class, 'uploadLogo'])->middleware('role:agencies.edit');
         Route::delete('agencies/{id}',                      [ConsoleAgencyController::class, 'destroy'])->middleware('role:agencies.delete');
         Route::get('agencies/{id}/onboarding-status',         [ConsoleAgencyController::class, 'onboardingStatus']);
         Route::post('agencies/{id}/complete-onboarding',      [ConsoleAgencyController::class, 'completeOnboarding'])->middleware('role:agencies.edit');

@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\Wallet;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class ConsoleAgencyController extends Controller
 {
@@ -43,6 +44,26 @@ class ConsoleAgencyController extends Controller
         );
 
         return response()->json($agency, 201);
+    }
+
+    public function uploadLogo(Request $request, string $id): JsonResponse
+    {
+        $agency = Agency::findOrFail($id);
+        $this->assertAgencyAllowed($request, $agency->agency_id);
+
+        $request->validate(['logo' => 'required|image|max:4096']);
+
+        $path = $request->file('logo')->store("agency-logos/{$agency->agency_id}", 'public');
+        $url  = Storage::disk('public')->url($path);
+
+        if ($agency->logo_url) {
+            $old = str_replace(Storage::disk('public')->url(''), '', $agency->logo_url);
+            Storage::disk('public')->delete($old);
+        }
+
+        $agency->update(['logo_url' => $url]);
+
+        return response()->json(['logo_url' => $url]);
     }
 
     public function update(Request $request, string $id): JsonResponse
