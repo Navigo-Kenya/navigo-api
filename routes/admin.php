@@ -463,6 +463,9 @@ Route::prefix('v1/console')
         // ── SACCO Members (operator management) ───────────────────────────────
         Route::get('members',                                    [SaccoMemberController::class, 'index'])           ->middleware('role:members.view');
         Route::get('members/export',                             [SaccoMemberController::class, 'export'])          ->middleware('role:members.view');
+        Route::get('members/import/sample',                      [SaccoMemberController::class, 'importSample'])    ->middleware('role:members.manage');
+        Route::post('members/import/preview',                    [SaccoMemberController::class, 'importPreview'])   ->middleware('role:members.manage');
+        Route::post('members/import/confirm',                    [SaccoMemberController::class, 'importConfirm'])   ->middleware('role:members.manage');
         Route::post('members',                                   [SaccoMemberController::class, 'store'])           ->middleware('role:members.manage');
         Route::get('members/{member}',                           [SaccoMemberController::class, 'show'])            ->middleware('role:members.view|profile.view');
         Route::patch('members/{member}',                         [SaccoMemberController::class, 'update'])          ->middleware('role:members.manage|profile.view');

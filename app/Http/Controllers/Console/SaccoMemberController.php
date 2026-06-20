@@ -8,14 +8,27 @@ use App\Models\MemberFee;
 use App\Models\MemberVetting;
 use App\Models\SaccoMember;
 use App\Models\User;
+use App\Services\ImportService;
+use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SaccoMemberController extends Controller
 {
+    private const COLUMN_MAP = [
+        'Name'             => 'name',
+        'Phone'            => 'phone',
+        'Email'            => 'email',
+        'National ID'      => 'national_id',
+        'KRA PIN'          => 'kra_pin',
+        'M-Pesa Number'    => 'm_pesa_number',
+        'Membership Class' => 'membership_class',
+        'Notes'            => 'notes',
+    ];
     public function index(Request $request): JsonResponse
     {
         $q = SaccoMember::query()
@@ -332,5 +345,112 @@ class SaccoMemberController extends Controller
             }
             fclose($handle);
         }, 200, $headers);
+    }
+
+    // ── Import ────────────────────────────────────────────────────────────────
+
+    public function importSample(): StreamedResponse
+    {
+        $service = app(ImportService::class);
+        $content = $service->sampleCsvContent(
+            array_keys(self::COLUMN_MAP),
+            [
+                ['Jane Kamau',   '0712345678', 'jane@example.com', '12345678', 'A001234X', '0712345678', 'Class A', ''],
+                ['Peter Otieno', '0723456789', '',                 '87654321', '',         '0723456789', 'Class B', 'Associate member'],
+            ]
+        );
+
+        return response()->stream(function () use ($content) {
+            echo $content;
+        }, 200, [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="members-import-sample.csv"',
+        ]);
+    }
+
+    public function importPreview(Request $request): JsonResponse
+    {
+        $request->validate(['file' => 'required|file|max:10240']);
+
+        $ext = strtolower($request->file('file')->getClientOriginalExtension());
+        abort_if(! in_array($ext, ['csv', 'xlsx'], true), 422, 'Only CSV and XLSX files are supported.');
+
+        $service = app(ImportService::class);
+        $tempId  = $service->storeTempFile($request->file('file'));
+        $result  = $service->preview($tempId, self::COLUMN_MAP, $this->memberRowValidator());
+
+        return response()->json($result);
+    }
+
+    public function importConfirm(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'temp_id'   => 'required|string',
+            'agency_id' => 'required|string|exists:agencies,agency_id',
+        ]);
+
+        $this->assertAgencyAllowed($request, $data['agency_id']);
+
+        $service = app(ImportService::class);
+        $userId  = $request->user()->id;
+        $agencyId = $data['agency_id'];
+
+        $result = $service->confirm(
+            $data['temp_id'],
+            self::COLUMN_MAP,
+            $this->memberRowValidator(),
+            function (array $row) use ($agencyId, $userId) {
+                $classRaw = strtolower(preg_replace('/[\s_\-]/', '', $row['membership_class']));
+                $class    = match (true) {
+                    in_array($classRaw, ['classa', 'a'], true) => 'class_a',
+                    in_array($classRaw, ['classb', 'b'], true) => 'class_b',
+                    default                                     => $classRaw,
+                };
+
+                SaccoMember::create([
+                    'agency_id'        => $agencyId,
+                    'membership_class' => $class,
+                    'name'             => trim($row['name']),
+                    'phone'            => $row['phone'] ?: null,
+                    'email'            => $row['email'] ?: null,
+                    'national_id'      => $row['national_id'] ?: null,
+                    'kra_pin'          => $row['kra_pin'] ?: null,
+                    'm_pesa_number'    => $row['m_pesa_number'] ?: null,
+                    'notes'            => $row['notes'] ?: null,
+                    'membership_no'    => SaccoMember::generateMembershipNo($agencyId),
+                    'status'           => 'pending_vetting',
+                    'voting_rights'    => $class === 'class_a',
+                    'created_by'       => $userId,
+                ]);
+            }
+        );
+
+        return response()->json($result);
+    }
+
+    private function memberRowValidator(): Closure
+    {
+        return function (array $row): array {
+            $errors = [];
+
+            if (empty(trim($row['name'] ?? ''))) {
+                $errors[] = 'Name is required';
+            }
+
+            $classRaw = strtolower(preg_replace('/[\s_\-]/', '', $row['membership_class'] ?? ''));
+            if (! in_array($classRaw, ['classa', 'classb', 'a', 'b'], true)) {
+                $errors[] = 'Membership Class must be "Class A" or "Class B"';
+            }
+
+            if (! empty($row['email']) && ! filter_var($row['email'], FILTER_VALIDATE_EMAIL)) {
+                $errors[] = 'Email is not valid';
+            }
+
+            if (! empty($row['phone']) && ! preg_match('/^[0-9+\s\-]{7,20}$/', $row['phone'])) {
+                $errors[] = 'Phone format is invalid';
+            }
+
+            return $errors;
+        };
     }
 }
