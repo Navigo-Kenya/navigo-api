@@ -21,6 +21,7 @@ class Agency extends Model
             return url('/storage/' . $matches[1]);
         }
         return $value;
+        
     }
 
     public function routes(): HasMany
