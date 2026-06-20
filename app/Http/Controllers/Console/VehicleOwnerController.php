@@ -73,12 +73,11 @@ class VehicleOwnerController extends Controller
 
         $request->validate(['photo' => 'required|image|max:4096']);
 
-        $path = $request->file('photo')->store("owner-photos/{$owner->id}", 'public');
-        $url  = Storage::disk('public')->url($path);
+        $path = $request->file('photo')->store("owner-photos/{$owner->id}", 'r2');
+        $url  = $this->r2Url($path);
 
         if ($owner->photo_url) {
-            $old = str_replace(Storage::disk('public')->url(''), '', $owner->photo_url);
-            Storage::disk('public')->delete($old);
+            Storage::disk('r2')->delete($this->r2RelativePath($owner->getRawOriginal('photo_url')));
         }
 
         $owner->update(['photo_url' => $url]);

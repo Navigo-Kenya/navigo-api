@@ -93,14 +93,12 @@ class AuthController extends Controller
 
         $user = $request->user();
 
-        // Delete previous custom avatar from local storage
-        if ($user->avatar && str_contains($user->avatar, '/storage/avatars/')) {
-            $path = ltrim(parse_url($user->avatar, PHP_URL_PATH), '/');
-            Storage::disk('public')->delete(str_replace('storage/', '', $path));
+        if ($user->avatar) {
+            Storage::disk('r2')->delete($this->r2RelativePath($user->getRawOriginal('avatar')));
         }
 
-        $path = $request->file('avatar')->store("avatars/{$user->id}", 'public');
-        $url  = url('/storage/' . $path);
+        $path = $request->file('avatar')->store("avatars/{$user->id}", 'r2');
+        $url  = $this->r2Url($path);
 
         $user->update(['avatar' => $url]);
 

@@ -53,13 +53,15 @@ class ConsoleAgencyController extends Controller
 
         $request->validate(['logo' => 'required|image|max:4096']);
 
-        $path = $request->file('logo')->store("agency-logos/{$agency->agency_id}", 'public_uploads');
-        $url  = Storage::disk('public_uploads')->url($path);
+        $path = $request->file('logo')->store("agency-logos/{$agency->agency_id}", 'r2');
+        $url  = $this->r2Url($path);
 
-        if ($agency->getRawOriginal('logo_url')) {
-            $old = $agency->getRawOriginal('logo_url');
-            if (preg_match('#/uploads/(.+)$#', $old, $m)) {
-                Storage::disk('public_uploads')->delete($m[1]);
+        if ($old = $agency->getRawOriginal('logo_url')) {
+            if (str_contains($old, 'files.navigo.co.ke') || str_contains($old, 'r2.cloudflarestorage.com')) {
+                Storage::disk('r2')->delete($this->r2RelativePath($old));
+            } elseif (preg_match('#/uploads/(.+)$#', $old, $m)) {
+                // legacy public_uploads disk
+                @unlink(public_path('uploads/' . $m[1]));
             } elseif (preg_match('#/storage/(.+)$#', $old, $m)) {
                 Storage::disk('public')->delete($m[1]);
             }

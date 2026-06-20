@@ -283,8 +283,8 @@ class SaccoMemberController extends Controller
             'label'    => 'nullable|string|max:255',
         ]);
 
-        $path = $request->file('file')->store("member-docs/{$member->id}", 'public');
-        $url  = Storage::disk('public')->url($path);
+        $path = $request->file('file')->store("member-docs/{$member->id}", 'r2');
+        $url  = $this->r2Url($path);
 
         $doc = MemberDocument::create([
             'member_id'   => $member->id,
@@ -306,8 +306,7 @@ class SaccoMemberController extends Controller
             abort(404);
         }
 
-        $relative = str_replace(Storage::disk('public')->url(''), '', $doc->url);
-        Storage::disk('public')->delete($relative);
+        Storage::disk('r2')->delete($this->r2RelativePath($doc->url));
         $doc->delete();
 
         return response()->json(null, 204);

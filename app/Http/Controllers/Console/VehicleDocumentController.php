@@ -33,8 +33,8 @@ class VehicleDocumentController extends Controller
         ]);
 
         $file     = $request->file('file');
-        $path     = $file->store("vehicle-docs/{$vehicleId}", 'public');
-        $fileUrl  = Storage::url($path);
+        $path     = $file->store("vehicle-docs/{$vehicleId}", 'r2');
+        $fileUrl  = $this->r2Url($path);
 
         $doc = VehicleDocument::create([
             'vehicle_id'    => $vehicleId,
@@ -69,9 +69,7 @@ class VehicleDocumentController extends Controller
     {
         $doc = VehicleDocument::where('vehicle_id', $vehicleId)->findOrFail($id);
 
-        // Delete from storage
-        $path = str_replace('/storage/', '', $doc->file_url);
-        Storage::disk('public')->delete($path);
+        Storage::disk('r2')->delete($this->r2RelativePath($doc->file_url));
 
         $doc->delete();
 
