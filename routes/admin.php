@@ -133,6 +133,7 @@ Route::prefix('v1/console')
         Route::post('trips/{id}/submit-for-review', [ConsoleTripController::class, 'submitForReview'])->middleware('role:trips.edit');
         Route::post('trips/{id}/approve',           [ConsoleTripController::class, 'approveDraft'])->middleware('role:scheduling.edit');
         Route::post('trips/{id}/reject',            [ConsoleTripController::class, 'rejectDraft'])->middleware('role:scheduling.edit');
+        Route::post('trips/{id}/propagate-shape',   [ConsoleTripController::class, 'propagateShape'])->middleware('role:trips.edit');
 
         // ── Trip Frequencies ──────────────────────────────────────────────────
         Route::get('trips/{tripId}/frequencies',         [ConsoleTripFrequencyController::class, 'index']);

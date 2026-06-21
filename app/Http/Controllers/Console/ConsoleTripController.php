@@ -86,7 +86,6 @@ class ConsoleTripController extends Controller
         ]);
 
         $trip = Trip::create($data);
-        $this->scheduleOtpSync();
 
         return response()->json($trip, 201);
     }
@@ -106,7 +105,6 @@ class ConsoleTripController extends Controller
         ]);
 
         $trip->update($data);
-        $this->scheduleOtpSync();
 
         return response()->json($trip);
     }
@@ -120,7 +118,6 @@ class ConsoleTripController extends Controller
         $trip = Trip::findOrFail($id);
         StopTime::where('trip_id', $trip->trip_id)->delete();
         $trip->delete();
-        $this->scheduleOtpSync();
 
         return response()->json(['message' => 'Trip deleted.']);
     }
@@ -147,7 +144,6 @@ class ConsoleTripController extends Controller
         );
 
         $trip->update(['shape_id' => $shapeId]);
-        $this->scheduleOtpSync();
 
         return response()->json(['shape_id' => $shapeId]);
     }
@@ -181,8 +177,6 @@ class ConsoleTripController extends Controller
             }
         });
 
-        $this->scheduleOtpSync();
-
         return response()->json(['message' => 'Stop times saved.']);
     }
 
@@ -205,7 +199,6 @@ class ConsoleTripController extends Controller
             'reviewed_at'  => now(),
             'review_notes' => $request->input('notes'),
         ]);
-        $this->scheduleOtpSync();
         return response()->json($trip);
     }
 
@@ -233,6 +226,51 @@ class ConsoleTripController extends Controller
         }
 
         return response()->json($q->latest('updated_at')->paginate(30));
+    }
+
+    public function propagateShape(string $id): JsonResponse
+    {
+        $trip = Trip::findOrFail($id);
+
+        if (!$trip->shape_id) {
+            return response()->json(['message' => 'This trip has no saved shape.'], 422);
+        }
+
+        $row = DB::selectOne(
+            "SELECT ST_AsText(path) as wkt FROM shapes WHERE shape_id = ?",
+            [$trip->shape_id]
+        );
+
+        if (!$row?->wkt) {
+            return response()->json(['message' => 'Shape geometry not found.'], 422);
+        }
+
+        $shapeIds = DB::table('trips')
+            ->where('route_id', $trip->route_id)
+            ->where('direction_id', $trip->direction_id)
+            ->whereNotNull('shape_id')
+            ->pluck('shape_id')
+            ->unique()
+            ->values()
+            ->all();
+
+        $affectedTrips = DB::table('trips')
+            ->where('route_id', $trip->route_id)
+            ->where('direction_id', $trip->direction_id)
+            ->whereNotNull('shape_id')
+            ->count();
+
+        foreach ($shapeIds as $shapeId) {
+            DB::statement(
+                "UPDATE shapes SET path = ST_GeomFromText(?, 4326), updated_at = NOW() WHERE shape_id = ?",
+                [$row->wkt, $shapeId]
+            );
+        }
+
+        return response()->json([
+            'updated_shapes' => count($shapeIds),
+            'affected_trips' => $affectedTrips,
+        ]);
     }
 
     public function stopsNearLine(Request $request): JsonResponse

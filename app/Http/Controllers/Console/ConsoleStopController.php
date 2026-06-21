@@ -95,8 +95,6 @@ class ConsoleStopController extends Controller
         $stop = Stop::selectRaw("*, ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng")
             ->findOrFail($data['id']);
 
-        $this->scheduleOtpSync();
-
         return response()->json($stop, 201);
     }
 
@@ -137,8 +135,6 @@ class ConsoleStopController extends Controller
             $stop->update($updates);
         }
 
-        $this->scheduleOtpSync();
-
         return response()->json(
             Stop::selectRaw("*, ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng")
                 ->findOrFail($stop->id)
@@ -153,7 +149,6 @@ class ConsoleStopController extends Controller
 
         $stop = Stop::findOrFail($id);
         $stop->delete();
-        $this->scheduleOtpSync();
 
         return response()->json(['message' => 'Stop deleted.']);
     }

@@ -99,7 +99,6 @@ class ConsoleRouteController extends Controller
         $this->assertAgencyAllowed($request, $data['agency_id']);
 
         $route = Route::create($data);
-        $this->scheduleOtpSync();
 
         return response()->json($route, 201);
     }
@@ -121,7 +120,6 @@ class ConsoleRouteController extends Controller
         ]);
 
         $route->update($data);
-        $this->scheduleOtpSync();
 
         return response()->json($route);
     }
@@ -147,8 +145,6 @@ class ConsoleRouteController extends Controller
             );
         }
 
-        $this->scheduleOtpSync();
-
         return response()->json(['message' => 'Stop sequence updated.']);
     }
 
@@ -162,7 +158,6 @@ class ConsoleRouteController extends Controller
         $this->assertAgencyAllowed($request, $route->agency_id);
 
         $route->delete();
-        $this->scheduleOtpSync();
 
         return response()->json(['message' => 'Route deleted.']);
     }
@@ -223,8 +218,6 @@ class ConsoleRouteController extends Controller
             [$shapeId, $lineWkt]
         );
 
-        $this->scheduleOtpSync();
-
         return response()->json(['shape_id' => $shapeId]);
     }
 
@@ -276,8 +269,6 @@ class ConsoleRouteController extends Controller
                 StopTime::insert($rows);
             }
         });
-
-        $this->scheduleOtpSync();
 
         return response()->json(['message' => 'Trip stops saved.']);
     }

@@ -21,7 +21,10 @@ RUN apk add --no-cache \
       libjpeg-turbo \
       freetype \
       libxml2 \
-      oniguruma
+      oniguruma \
+      bash \
+      docker-cli \
+      docker-cli-compose
 
 # Build-time deps: headers + toolchain (removed after extension install)
 RUN apk add --no-cache --virtual .build-deps \
@@ -92,7 +95,7 @@ RUN mkdir -p \
       storage/app/public \
  && chown -R www-data:www-data storage bootstrap/cache \
  && chmod -R 755 storage bootstrap/cache \
- && chmod +x docker/entrypoint.sh
+ && chmod +x docker/entrypoint.sh scripts/otp-rebuild.sh
 
 EXPOSE 9000
 ENTRYPOINT ["docker/entrypoint.sh"]

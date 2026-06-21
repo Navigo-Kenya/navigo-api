@@ -56,6 +56,9 @@ services:
     volumes:
       - ./:/var/www
       - storage_data:/var/www/storage
+      - otp_data:/var/opentripplanner          
+      - /var/run/docker.sock:/var/run/docker.sock
+      
     depends_on:
       postgres:
         condition: service_healthy

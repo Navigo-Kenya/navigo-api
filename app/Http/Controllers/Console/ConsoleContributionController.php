@@ -64,9 +64,7 @@ class ConsoleContributionController extends Controller
             $contribution->user()->increment('points', 10);
         }
 
-        $this->scheduleOtpSync();
-
-        return response()->json(['message' => 'Contribution approved. OTP sync queued.']);
+        return response()->json(['message' => 'Contribution approved.']);
     }
 
     public function decline(Request $request, int $id): JsonResponse
@@ -124,10 +122,6 @@ class ConsoleContributionController extends Controller
                 'reviewed_at' => now(),
                 'reviewed_by' => auth()->id(),
             ]);
-
-        if ($count > 0) {
-            $this->scheduleOtpSync();
-        }
 
         return response()->json(['approved' => $count]);
     }

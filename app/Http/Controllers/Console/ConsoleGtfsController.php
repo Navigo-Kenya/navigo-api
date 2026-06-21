@@ -41,7 +41,19 @@ class ConsoleGtfsController extends Controller
 
     public function export(): JsonResponse
     {
+        // Prevent double-queuing: the UI disables the button while running,
+        // but this guard protects against rapid API calls or concurrent sessions.
+        // OtpSyncJob sets this key to 'ok' / 'failed' on completion.
+        if (Cache::get('otp:sync_status') === 'running') {
+            return response()->json(['message' => 'A sync is already in progress.'], 409);
+        }
+
+        // Mark as running immediately so a second request hitting the guard above
+        // is rejected before the queued job even starts (queue may have a short lag).
+        // The job overwrites this with a longer TTL once it begins.
         Cache::put('otp:sync_status', 'running', now()->addMinutes(15));
+
+        // force: true bypasses the 30s debounce — this is an explicit operator action.
         $this->scheduleOtpSync(delaySecs: 0, force: true);
 
         return response()->json(['message' => 'GTFS export and OTP sync queued.']);
