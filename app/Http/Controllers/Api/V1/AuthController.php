@@ -5,15 +5,18 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\OtpService;
+use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules\Password;
 
 class AuthController extends Controller
 {
-    public function __construct(private OtpService $otp) {}
+    public function __construct(
+        private OtpService     $otp,
+        private StorageService $storage,
+    ) {}
 
     public function register(Request $request): JsonResponse
     {
@@ -93,12 +96,8 @@ class AuthController extends Controller
 
         $user = $request->user();
 
-        if ($user->avatar) {
-            Storage::disk('r2')->delete($this->r2RelativePath($user->getRawOriginal('avatar')));
-        }
-
-        $path = $request->file('avatar')->store("avatars/{$user->id}", 'r2');
-        $url  = $this->r2Url($path);
+        $this->storage->delete($user->getRawOriginal('avatar'));
+        $url = $this->storage->upload($request->file('avatar'), "avatars/{$user->id}");
 
         $user->update(['avatar' => $url]);
 

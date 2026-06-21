@@ -9,16 +9,18 @@ use App\Models\MemberVetting;
 use App\Models\SaccoMember;
 use App\Models\User;
 use App\Services\ImportService;
+use App\Services\StorageService;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SaccoMemberController extends Controller
 {
+    public function __construct(private StorageService $storage) {}
+
     private const COLUMN_MAP = [
         'Name'             => 'name',
         'Email'            => 'email',
@@ -283,8 +285,7 @@ class SaccoMemberController extends Controller
             'label'    => 'nullable|string|max:255',
         ]);
 
-        $path = $request->file('file')->store("member-docs/{$member->id}", 'r2');
-        $url  = $this->r2Url($path);
+        $url = $this->storage->upload($request->file('file'), "member-docs/{$member->id}");
 
         $doc = MemberDocument::create([
             'member_id'   => $member->id,
@@ -306,7 +307,7 @@ class SaccoMemberController extends Controller
             abort(404);
         }
 
-        Storage::disk('r2')->delete($this->r2RelativePath($doc->url));
+        $this->storage->delete($doc->url);
         $doc->delete();
 
         return response()->json(null, 204);

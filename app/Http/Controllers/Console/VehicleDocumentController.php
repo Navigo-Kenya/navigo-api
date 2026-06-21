@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Console;
 use App\Http\Controllers\Controller;
 use App\Models\VehicleDocument;
 use App\Models\Vehicle;
+use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 class VehicleDocumentController extends Controller
 {
+    public function __construct(private StorageService $storage) {}
+
     public function index(int $vehicleId): JsonResponse
     {
         $docs = VehicleDocument::where('vehicle_id', $vehicleId)
@@ -32,9 +34,8 @@ class VehicleDocumentController extends Controller
             'expiry_date'   => 'nullable|date',
         ]);
 
-        $file     = $request->file('file');
-        $path     = $file->store("vehicle-docs/{$vehicleId}", 'r2');
-        $fileUrl  = $this->r2Url($path);
+        $file    = $request->file('file');
+        $fileUrl = $this->storage->upload($file, "vehicle-docs/{$vehicleId}");
 
         $doc = VehicleDocument::create([
             'vehicle_id'    => $vehicleId,
@@ -69,7 +70,7 @@ class VehicleDocumentController extends Controller
     {
         $doc = VehicleDocument::where('vehicle_id', $vehicleId)->findOrFail($id);
 
-        Storage::disk('r2')->delete($this->r2RelativePath($doc->file_url));
+        $this->storage->delete($doc->file_url);
 
         $doc->delete();
 

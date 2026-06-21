@@ -4,13 +4,15 @@ namespace App\Http\Controllers\Console;
 
 use App\Http\Controllers\Controller;
 use App\Models\VehicleOwner;
+use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 
 class VehicleOwnerController extends Controller
 {
+    public function __construct(private StorageService $storage) {}
+
     public function index(Request $request): JsonResponse
     {
         $q = VehicleOwner::query()->withCount('vehicles');
@@ -73,12 +75,8 @@ class VehicleOwnerController extends Controller
 
         $request->validate(['photo' => 'required|image|max:4096']);
 
-        $path = $request->file('photo')->store("owner-photos/{$owner->id}", 'r2');
-        $url  = $this->r2Url($path);
-
-        if ($owner->photo_url) {
-            Storage::disk('r2')->delete($this->r2RelativePath($owner->getRawOriginal('photo_url')));
-        }
+        $this->storage->delete($owner->getRawOriginal('photo_url'));
+        $url = $this->storage->upload($request->file('photo'), "owner-photos/{$owner->id}");
 
         $owner->update(['photo_url' => $url]);
 

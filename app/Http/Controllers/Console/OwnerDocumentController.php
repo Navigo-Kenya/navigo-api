@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Console;
 use App\Http\Controllers\Controller;
 use App\Models\OwnerDocument;
 use App\Models\VehicleOwner;
+use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 class OwnerDocumentController extends Controller
 {
+    public function __construct(private StorageService $storage) {}
+
     public function index(Request $request, VehicleOwner $owner): JsonResponse
     {
         $this->assertAgencyAllowed($request, $owner->agency_id);
@@ -29,8 +31,7 @@ class OwnerDocumentController extends Controller
             'file'          => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
         ]);
 
-        $path = $request->file('file')->store("owner-documents/{$owner->id}", 'r2');
-        $url  = $this->r2Url($path);
+        $url = $this->storage->upload($request->file('file'), "owner-documents/{$owner->id}");
 
         $doc = $owner->documents()->create([
             'document_type' => $data['document_type'],
@@ -50,7 +51,7 @@ class OwnerDocumentController extends Controller
             return response()->json(['message' => 'Not found'], 404);
         }
 
-        Storage::disk('r2')->delete($this->r2RelativePath($document->file_url));
+        $this->storage->delete($document->file_url);
 
         $document->delete();
 

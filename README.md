@@ -70,7 +70,7 @@ Mobile App (Expo)          Console SPA (React)
 │                                                              │
 │  Services Layer                                              │
 │    TransitEngineService  AiAssistantService                  │
-│    LocationService  GeocodingService                         │
+│    LocationService  GeocodingService  StorageService         │
 │    GtfsExportService  GtfsValidatorService                   │
 │    GtfsOfficialValidatorService                              │
 │    DataQualityService  RoadSnapperService                    │
@@ -292,6 +292,65 @@ Tiered stop lookup: exact → starts-with → contains (all ILIKE on local GTFS 
 
 ---
 
+### `StorageService`
+
+Single entry point for all file I/O in the application. Backed by **Cloudflare R2** as the primary disk. Every controller that handles file uploads or deletions injects this service via constructor — no raw `Storage` facade calls exist outside it.
+
+#### Cloudflare R2 setup
+
+R2 is an S3-compatible object store with zero egress fees. The Laravel filesystem driver is `s3` pointed at the R2 endpoint:
+
+```php
+// config/filesystems.php  (disk: 'r2')
+'s3' driver with:
+  'key'      => env('R2_ACCESS_KEY_ID')
+  'secret'   => env('R2_SECRET_ACCESS_KEY')
+  'region'   => 'auto'
+  'bucket'   => env('R2_BUCKET')
+  'endpoint' => env('R2_ENDPOINT')          // https://<account>.r2.cloudflarestorage.com
+  'url'      => env('R2_PUBLIC_URL')        // https://files.navigo.co.ke  (custom domain)
+  'visibility' => 'public'
+```
+
+All uploaded files are served through the `files.navigo.co.ke` custom domain (a Cloudflare-managed domain pointing at the R2 public bucket). No file bytes ever transit through the Laravel process after the initial upload — clients fetch directly from R2/CDN.
+
+#### Public API
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `upload` | `upload(UploadedFile $file, string $folder): string` | Store on R2, return public HTTPS URL. Throws `RuntimeException` on write failure. |
+| `delete` | `delete(?string $url): void` | Safe delete: R2 → legacy public disk → legacy uploads dir → skip external. Null-safe. |
+| `url` | `url(string $path): string` | Bucket-relative path → fully-qualified public URL. |
+| `relativePath` | `relativePath(string $url): string` | Public URL → bucket-relative path (needed for low-level R2 operations). |
+
+#### Legacy disk handling
+
+Before the R2 migration, files lived on two local disks. `delete()` handles all three storage generations transparently:
+
+| URL pattern | Disk | Action |
+|-------------|------|--------|
+| `files.navigo.co.ke/…` or `r2.cloudflarestorage.com/…` | R2 | `Storage::disk('r2')->delete()` |
+| `/storage/…` | Laravel public disk | `Storage::disk('public')->delete()` |
+| `/uploads/…` | Legacy raw public dir | `unlink(public_path(...))` |
+| Any other URL (Google, Apple OAuth) | External | Log + skip silently |
+
+#### Controllers that inject StorageService
+
+`AuthController` · `ConsoleAgencyController` · `VehicleOwnerController` · `VehicleDocumentController` · `OwnerDocumentController` · `SaccoMemberController`
+
+#### Folder naming convention
+
+| Entity | R2 prefix |
+|--------|-----------|
+| User avatars | `avatars/{user_id}/` |
+| Agency logos | `agency-logos/{agency_id}/` |
+| Owner photos | `owner-photos/{owner_id}/` |
+| Vehicle documents | `vehicle-docs/{vehicle_id}/` |
+| Owner documents | `owner-documents/{owner_id}/` |
+| Member documents | `member-docs/{member_id}/` |
+
+---
+
 ## Artisan Commands
 
 ### `patterns:generate`
@@ -437,6 +496,13 @@ GEMINI_API_KEY=
 
 # Geocoding fallback
 GOOGLE_MAPS_API_KEY=
+
+# Cloudflare R2 object storage
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET=
+R2_ENDPOINT=https://<account_id>.r2.cloudflarestorage.com
+R2_PUBLIC_URL=https://files.navigo.co.ke   # custom domain pointed at the R2 bucket
 
 # OpenTripPlanner
 OTP_BASE_URL=http://localhost:8080

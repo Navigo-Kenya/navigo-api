@@ -6,7 +6,6 @@ use App\Jobs\OtpSyncJob;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Storage;
 
 abstract class Controller
 {
@@ -54,21 +53,6 @@ abstract class Controller
      *
      * Pass $force=true to bypass the debounce (e.g. explicit "Sync now" button).
      */
-    /**
-     * Extract the relative path from a Cloudflare R2 public URL so it can be
-     * passed to Storage::disk('r2')->delete().
-     */
-    protected function r2Url(string $path): string
-    {
-        return rtrim(config('filesystems.disks.r2.url', 'https://files.navigo.co.ke'), '/') . '/' . ltrim($path, '/');
-    }
-
-    protected function r2RelativePath(string $url): string
-    {
-        $base = rtrim(config('filesystems.disks.r2.url', 'https://files.navigo.co.ke'), '/');
-        return ltrim(str_replace($base, '', $url), '/');
-    }
-
     protected function scheduleOtpSync(int $delaySecs = 30, bool $force = false): void
     {
         if ($force) {
