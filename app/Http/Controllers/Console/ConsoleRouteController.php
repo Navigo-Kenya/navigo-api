@@ -65,11 +65,15 @@ class ConsoleRouteController extends Controller
 
         $data = $route->toArray();
 
-        // Shapes live on trips in GTFS, not directly on the route.
-        // Collect unique shapes from all trips so the frontend gets route.shapes[].
-        $data['shapes'] = $route->trips
-            ->pluck('shape')
-            ->filter()
+        // The editor saves a shape keyed as "{route_id}_shape" via saveShape().
+        // Surface that shape first so the editor always reads back what it wrote,
+        // even when saveTripStops() was never called (no stops yet) or when
+        // GTFS-imported trips carry their own shape_ids that sort before ours.
+        $editorShape = \App\Models\Shape::find("{$route->route_id}_shape");
+        $tripShapes  = $route->trips->pluck('shape')->filter()->unique('shape_id');
+
+        $data['shapes'] = collect($editorShape ? [$editorShape] : [])
+            ->concat($tripShapes)
             ->unique('shape_id')
             ->values()
             ->toArray();
@@ -234,7 +238,7 @@ class ConsoleRouteController extends Controller
         $route = Route::findOrFail($id);
 
         $data = $request->validate([
-            'stops'                  => 'required|array',
+            'stops'                  => 'present|array',   // empty array is valid (shape-only save)
             'stops.*.stop_id'        => 'required|string|exists:stops,id',
             'stops.*.arrival_time'   => ['required', 'string', 'regex:/^\d{1,2}:\d{2}:\d{2}$/'],
             'stops.*.departure_time' => ['required', 'string', 'regex:/^\d{1,2}:\d{2}:\d{2}$/'],
