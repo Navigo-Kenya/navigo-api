@@ -60,8 +60,17 @@ abstract class Controller
         }
 
         // Cache::add is atomic: returns true only if key did not already exist.
-        if (Cache::add('otp:sync_debounce', true, $delaySecs)) {
-            OtpSyncJob::dispatch()->delay(now()->addSeconds($delaySecs))->onQueue('otp');
+        // Use max(1, ...) so TTL is never 0 (Redis SETEX requires TTL >= 1).
+        if (!Cache::add('otp:sync_debounce', true, max(1, $delaySecs))) {
+            return;
+        }
+
+        $pending = OtpSyncJob::dispatch()->onQueue('otp');
+
+        // Only go through the Redis delayed-ZSET path when there is an actual delay.
+        // delay(0) still uses the sorted-set path and can stall if PHP/Redis clocks skew.
+        if ($delaySecs > 0) {
+            $pending->delay(now()->addSeconds($delaySecs));
         }
     }
 }
