@@ -53,12 +53,14 @@ services:
     container_name: hopln_queue
     command: php artisan queue:work --queue=otp,default --tries=1 --timeout=0
     env_file: .env
+    # DOCKER_GID must match the GID of /var/run/docker.sock on the host.
+    # Run: stat -c '%g' /var/run/docker.sock
+    user: "${QUEUE_USER:-www-data}:${DOCKER_GID:-999}"
     volumes:
       - ./:/var/www
       - storage_data:/var/www/storage
-      - otp_data:/var/opentripplanner          
+      - otp_data:/var/opentripplanner
       - /var/run/docker.sock:/var/run/docker.sock
-      
     depends_on:
       postgres:
         condition: service_healthy
