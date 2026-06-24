@@ -92,17 +92,19 @@ services:
 
   pgadmin:
     image: dpage/pgadmin4
-    # container_name: pgadmin
+    container_name: hopln_pgadmin
     restart: always
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
 
-      # ── FIXES FOR THE ENDLESS LOADING ISSUE ────────────────────────────────
-      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "True"
+      # ── FIXES FOR THE ENDLESS LOADING LOOP ────────────────────────────────
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "False"
+      PGADMIN_CONFIG_WTF_CSRF_ENABLED: "False"
+      PGADMIN_CONFIG_WTF_CSRF_CHECK_DEFAULT: "False"
       PGADMIN_CONFIG_CONSOLE_LOG_LEVEL: "10"
-      # Tells pgAdmin it is safely behind Caddy/Cloudflare HTTPS proxy
       GUNICORN_PROXY_PROTOCOL: "True"
+      SCRIPT_NAME: /
     
     # Ports are commented out to prevent external access; pgAdmin is only accessible via Caddy reverse proxy.
     # ports:
