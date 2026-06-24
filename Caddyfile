@@ -68,7 +68,7 @@ db.navigo.co.ke {
     # Remplacer 'admin' par votre utilisateur et le hash par votre mot de passe généré
     # Pour générer le hash, exécutez sur votre machine : caddy hash-password --plaintext "VotreMotDePasse"
     basic_auth {
-        admin JDJhJDE0JDFOM0w4OWVvOW8zN3JZdnF6LnpNMS5MdlE3U3V3S3B0R1pYdU9vU0t0TjhvTDRwRnU0bTZX
+        admin $2a$14$y.22yXzmCniJnXV51XnpqeWTBYtsGCzlVfwql13LdgFs6r4xY/ixG
     }
 
     # Proxy vers le conteneur pgadmin sur le port interne 80
