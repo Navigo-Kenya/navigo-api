@@ -35,6 +35,12 @@ class OtpDeliveryService
             return;
         }
 
+        // Invoke shell scripts via bash explicitly so the executable bit is not required.
+        // Git on Windows does not preserve +x, causing exit 126 on every fresh deploy.
+        if (str_ends_with(trim($cmd), '.sh')) {
+            $cmd = 'bash ' . $cmd;
+        }
+
         Log::info("[OtpDelivery] Running build command: {$cmd}");
         $this->runCommand($cmd);
         Log::info('[OtpDelivery] Build command completed successfully.');
