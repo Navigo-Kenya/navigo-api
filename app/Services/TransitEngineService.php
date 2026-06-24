@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Exception;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -73,14 +74,22 @@ class TransitEngineService
             }
         }
 
-        // v2: cache now stores an array of itineraries
         $cacheKey = 'otp:journey:v2:' . md5("{$fromLat},{$fromLng},{$toLat},{$toLng},{$resolvedDate},{$resolvedTime},{$walkReluctance},{$maxWalkDistance}");
 
-        return Cache::remember(
-            $cacheKey,
-            $this->otpCacheTtl,
-            fn () => $this->fetchFromOtp($fromLat, $fromLng, $toLat, $toLng, $resolvedDate, $resolvedTime, $walkReluctance, $maxWalkDistance)
-        );
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        $result = $this->fetchFromOtp($fromLat, $fromLng, $toLat, $toLng, $resolvedDate, $resolvedTime, $walkReluctance, $maxWalkDistance);
+
+        // Only cache a real response (including empty []). Do not cache null — null means
+        // OTP is unreachable and the instance may recover before the TTL expires.
+        if ($result !== null) {
+            Cache::put($cacheKey, $result, $this->otpCacheTtl);
+        }
+
+        return $result;
     }
 
     private function fetchFromOtp( float $fromLat, float $fromLng, float $toLat, float $toLng, string $date, string $time, float $walkReluctance, int $maxWalkDistance = 1500): ?array
@@ -102,12 +111,14 @@ class TransitEngineService
 
             if (!$response->successful()) {
                 Log::warning('OTP returned non-2xx response', ['status' => $response->status()]);
+                // Treat a bad response as unavailable — caller will surface a 503.
                 return null;
             }
 
             $body        = $response->json();
             $itineraries = $body['plan']['itineraries'] ?? [];
 
+            // Empty itineraries means OTP is up but found no valid route — not the same as down.
             if (empty($itineraries)) {
                 return [];
             }
@@ -116,21 +127,25 @@ class TransitEngineService
 
             // OTP sometimes returns the same itinerary twice when only one route exists.
             // Deduplicate by summary + rounded total_duration (within 60 s = same route).
-            $seen = [];
+            $seen   = [];
             $unique = [];
             foreach ($parsed as $route) {
                 $bucket = ($route['summary'] ?? '') . '|' . (int) round(($route['total_duration'] ?? 0) / 60);
                 if (!isset($seen[$bucket])) {
                     $seen[$bucket] = true;
-                    $unique[] = $route;
+                    $unique[]      = $route;
                 }
             }
 
             return array_values($unique);
 
+        } catch (ConnectionException $e) {
+            // OTP container is down, restarting, or unreachable.
+            Log::error('OTP unreachable', ['message' => $e->getMessage()]);
+            return null;
         } catch (Exception $e) {
-            Log::error('OTP Engine Error', ['message' => $e->getMessage()]);
-            return [];
+            Log::error('OTP engine error', ['message' => $e->getMessage()]);
+            return null;
         }
     }
 

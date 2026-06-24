@@ -47,6 +47,15 @@ class RouteController extends Controller
             maxWalkDistance: (int) ($validated['max_walk_distance'] ?? 1500),
         );
 
+        // null = OTP is down or unreachable (distinct from an empty result set).
+        if ($routes === null) {
+            Log::warning('OTP unavailable — returning 503 to client.');
+            return response()->json([
+                'message' => 'Route planning is temporarily unavailable. Please try again in a moment.',
+                'code'    => 'OTP_UNAVAILABLE',
+            ], 503);
+        }
+
         if (empty($routes)) {
             Log::info('No route found.');
             return response()->json(['data' => []]);

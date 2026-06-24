@@ -52,7 +52,11 @@ class AiTransitController extends Controller
             );
 
             if (!$result) {
-                return response()->json(['error' => 'Could not process your transit request.'], 422);
+                // Could be OTP down or AI parsing failure — surface a clear message either way.
+                return response()->json([
+                    'message' => 'Route planning is temporarily unavailable. Please try again in a moment.',
+                    'code'    => 'OTP_UNAVAILABLE',
+                ], 503);
             }
         } catch (Throwable $e) {
             Log::error('AI Transit processing failed', ['session_id' => $sessionId, 'exception' => $e->getMessage()]);
