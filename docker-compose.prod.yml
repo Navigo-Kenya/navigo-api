@@ -53,9 +53,6 @@ services:
     container_name: hopln_queue
     command: php artisan queue:work --queue=otp,default --tries=1 --timeout=0
     env_file: .env
-    # DOCKER_GID must match the GID of /var/run/docker.sock on the host.
-    # Run: stat -c '%g' /var/run/docker.sock
-    user: "${QUEUE_USER:-www-data}:${DOCKER_GID:-999}"
     volumes:
       - ./:/var/www
       - storage_data:/var/www/storage
@@ -90,6 +87,25 @@ services:
     networks:
       - hopln_net
     # No ports exposed — only accessible within hopln_net
+
+  # ── pgAdmin ───────────────────────────────────────────────────────────────
+
+  pgadmin:
+    image: dpage/pgadmin4
+    # container_name: pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    # ports:
+    #   - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - hopln_net
 
   # ── Redis ─────────────────────────────────────────────────────────────────
   redis:
@@ -144,6 +160,7 @@ services:
 volumes:
   storage_data:
   postgres_data:
+  pgadmin_data:
   redis_data:
   caddy_data:
   caddy_config:

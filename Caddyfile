@@ -49,3 +49,28 @@ api.navigo.co.ke {
     }
 }
 
+# ── pgAdmin Interface Securisée ──────────────────────────────────────────────
+db.navigo.co.ke {
+    # On utilise le même certificat d'origine Cloudflare pour ce sous-domaine
+    tls /certs/cert.pem /certs/key.pem
+
+    # Compression des données
+    encode zstd gzip
+
+    # En-têtes de sécurité de base pour l'interface d'administration
+    header {
+        X-Frame-Options DENY
+        X-Content-Type-Options nosniff
+        -Server
+    }
+
+    # Protection par mot de passe avant d'accéder à pgAdmin (Couche de sécurité supplémentaire)
+    # Remplacer 'admin' par votre utilisateur et le hash par votre mot de passe généré
+    # Pour générer le hash, exécutez sur votre machine : caddy hash-password --plaintext "VotreMotDePasse"
+    basic_auth {
+        admin JDJhJDE0JDFOM0w4OWVvOW8zN3JZdnF6LnpNMS5MdlE3U3V3S3B0R1pYdU9vU0t0TjhvTDRwRnU0bTZX
+    }
+
+    # Proxy vers le conteneur pgadmin sur le port interne 80
+    reverse_proxy pgadmin:80
+}
