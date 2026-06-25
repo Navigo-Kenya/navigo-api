@@ -145,7 +145,26 @@ class ConsoleTripController extends Controller
 
         $trip->update(['shape_id' => $shapeId]);
 
-        return response()->json(['shape_id' => $shapeId]);
+        // Propagate the same geometry to every other trip in this route+direction
+        // so that OTP always uses the same path regardless of which trip variant it picks.
+        $siblingShapeIds = DB::table('trips')
+            ->where('route_id', $trip->route_id)
+            ->where('direction_id', $trip->direction_id)
+            ->whereNotNull('shape_id')
+            ->where('shape_id', '!=', $shapeId)
+            ->pluck('shape_id')
+            ->unique()
+            ->values()
+            ->all();
+
+        foreach ($siblingShapeIds as $sibId) {
+            DB::statement(
+                "UPDATE shapes SET path = ST_GeomFromText(?, 4326), updated_at = NOW() WHERE shape_id = ?",
+                [$lineWkt, $sibId]
+            );
+        }
+
+        return response()->json(['shape_id' => $shapeId, 'siblings_updated' => count($siblingShapeIds)]);
     }
 
     public function saveStopTimes(Request $request, string $id): JsonResponse
