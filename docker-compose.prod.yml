@@ -106,23 +106,6 @@ services:
     networks:
       - hopln_net
 
-    image: dpage/pgadmin4
-    container_name: hopln_pgadmin
-    restart: always
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
-      # ── CLEANEDPROXY OVERRIDES ────────────────────────────────────────────
-      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "False"
-      PGADMIN_CONFIG_CONSOLE_LOG_LEVEL: "10"
-      GUNICORN_PROXY_PROTOCOL: "True"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    networks:
-      - hopln_net
 
   # ── Redis ─────────────────────────────────────────────────────────────────
   redis:
