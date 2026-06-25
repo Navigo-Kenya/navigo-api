@@ -127,6 +127,22 @@ class OtpSyncJob implements ShouldQueue
                 'message' => 'OTP is healthy and serving requests.',
             ]);
 
+            // Flush stale journey cache so the first post-rebuild API calls
+            // hit the new graph instead of returning old cached routes.
+            $redis   = \Illuminate\Support\Facades\Redis::connection();
+            $cursor  = '0';
+            $flushed = 0;
+            do {
+                [$cursor, $keys] = $redis->scan($cursor, 'MATCH', '*otp:journey:v2:*', 'COUNT', 200);
+                if (!empty($keys)) {
+                    $redis->del(...$keys);
+                    $flushed += count($keys);
+                }
+            } while ($cursor !== '0');
+            if ($flushed > 0) {
+                Log::info("[OtpSync] Flushed {$flushed} stale journey cache entries.");
+            }
+
             // Step 6, Finalise
             $duration = now()->diffInSeconds($startedAt);
 
