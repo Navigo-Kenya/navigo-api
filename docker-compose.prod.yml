@@ -89,8 +89,23 @@ services:
     # No ports exposed — only accessible within hopln_net
 
   # ── pgAdmin ───────────────────────────────────────────────────────────────
-
   pgadmin:
+    image: dpage/pgadmin4
+    container_name: hopln_pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "False"
+      PGADMIN_CONFIG_WTF_CSRF_ENABLED: "False"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - hopln_net
+
     image: dpage/pgadmin4
     container_name: hopln_pgadmin
     restart: always
