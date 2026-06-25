@@ -6,7 +6,7 @@
     email admin@navigo.co.ke
 }
 
-# Uniquement le moteur API Laravel (Hébergé sur Hetzner)
+# ── API Laravel avec Caddy et Cloudflare ───────────────────────────────────────
 api.navigo.co.ke {
     # Racine publique de Laravel dans votre conteneur Docker
     root * /var/www/public
@@ -53,20 +53,20 @@ db.navigo.co.ke {
     tls /certs/cert.pem /certs/key.pem
     encode zstd gzip
 
+    # Désactive les headers restrictifs pour que pgAdmin fonctionne
     header {
         -X-Frame-Options
         -X-Content-Type-Options
         -Server
-        # Disable browser and edge caching for the admin route so the dashboard can refresh
-        Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
     }
 
     basic_auth {
         admin $2a$14$y.22yXzmCniJnXV51XnpqeWTBYtsGCzlVfwql13LdgFs6r4xY/ixG
     }
 
+    # Proxy avec en-tête sécurisé explicite pour briser la boucle de redirection
     reverse_proxy hopln_pgadmin:80 {
-        header_up X-Script-Name /
+        header_up X-Forwarded-Proto https
     }
 }
 
