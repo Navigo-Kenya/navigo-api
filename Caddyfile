@@ -49,27 +49,22 @@ api.navigo.co.ke {
 }
 
 # ── pgAdmin Interface Securisée ──────────────────────────────────────────────
+# ── pgAdmin Interface Securisée ──────────────────────────────────────────────
 db.navigo.co.ke {
-    # On utilise le même certificat d'origine Cloudflare pour ce sous-domaine
     tls /certs/cert.pem /certs/key.pem
-
-    # Compression des données
     encode zstd gzip
 
-    # Nettoyage des en-têtes restrictifs pour permettre le rendu de pgAdmin
     header {
         -X-Frame-Options
         -X-Content-Type-Options
         -Server
     }
 
-    # Protection par mot de passe avant d'accéder à pgAdmin
     basic_auth {
         admin $2a$14$y.22yXzmCniJnXV51XnpqeWTBYtsGCzlVfwql13LdgFs6r4xY/ixG
     }
 
-    # Proxy vers le conteneur pgadmin sur le port interne 80
-    reverse_proxy hopln_pgadmin:80 {
-        header_up X-Forwarded-Proto https
-    }
+    # Clean reverse proxy without conflicting manual headers
+    reverse_proxy hopln_pgadmin:80
 }
+
