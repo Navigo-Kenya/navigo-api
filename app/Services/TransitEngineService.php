@@ -17,8 +17,7 @@ class TransitEngineService
     protected int    $otpCacheTtl;
 
     public function __construct(
-        private WalkingService      $walkingService,
-        private SnapToRoadsService  $snapToRoadsService,
+        private WalkingService $walkingService,
     ) {
         $this->otpBaseUrl  = config('transit.otp.base_url');
         $this->otpCacheTtl = config('transit.otp.cache_ttl');
@@ -234,13 +233,10 @@ class TransitEngineService
             $otpCoords = $encoded ? $this->decodePolyline($encoded) : [];
 
             if ($isTransit) {
-                // ── Transit: GTFS shape → snap to roads → OTP fallback ─────────
-                // 1. Try authoritative GTFS shape from our DB.
-                // 2. Snap result to real roads via Google Roads API (DB-cached).
-                // 3. If Roads API is unavailable, the raw coords are returned as-is.
-                $rawCoords   = $this->gtfsCoordinates($leg) ?? $otpCoords;
-                $cacheKey    = $this->transitSnapKey($leg);
-                $coordinates = $this->snapToRoadsService->snap($rawCoords, $cacheKey);
+                // Use the authoritative GTFS shape sliced between the two stops.
+                // Falls back to OTP's legGeometry polyline (also derived from the GTFS shape).
+                // No additional road-snapping: shapes are already drawn snapped to roads.
+                $coordinates = $this->gtfsCoordinates($leg) ?? $otpCoords;
                 $walkSteps   = [];
 
                 // Build ordered stop list: boarding + intermediate + alighting
@@ -263,8 +259,8 @@ class TransitEngineService
                     'lng'  => (float) ($leg['to']['lon'] ?? 0),
                 ];
             } else {
-                // ── Walking: use Google Directions API (road-snapped) ──────────
-                // DB-cached permanently; falls back to OTP when walk < 100 m.
+                // ── Walking: Google Directions API (road-snapped, DB-cached) ──────
+                // Falls back to OTP geometry when walk < 100 m or API key is absent.
                 $otpSteps = [];
                 if (isset($leg['steps'])) {
                     foreach ($leg['steps'] as $step) {
@@ -329,31 +325,6 @@ class TransitEngineService
             'total_distance'      => (int) round($totalDistance),
             'segments'            => $segments,
         ];
-    }
-
-    /**
-     * Builds a deterministic snap-cache key for a transit leg.
-     * Prefers trip+stop IDs (exact match); falls back to rounded coords.
-     */
-    private function transitSnapKey(array $leg): string
-    {
-        $strip = fn (string $id) => str_contains($id, ':') ? explode(':', $id, 2)[1] : $id;
-
-        $tripId     = isset($leg['tripId'])         ? $strip($leg['tripId'])         : null;
-        $fromStopId = isset($leg['from']['stopId']) ? $strip($leg['from']['stopId']) : null;
-        $toStopId   = isset($leg['to']['stopId'])   ? $strip($leg['to']['stopId'])   : null;
-
-        if ($tripId && $fromStopId && $toStopId) {
-            return "transit:{$tripId}:{$fromStopId}:{$toStopId}";
-        }
-
-        // Coord-based fallback (rounded to 4 dp ≈ 11 m bucket)
-        $fLat = round((float) ($leg['from']['lat'] ?? 0), 4);
-        $fLng = round((float) ($leg['from']['lon'] ?? 0), 4);
-        $tLat = round((float) ($leg['to']['lat']   ?? 0), 4);
-        $tLng = round((float) ($leg['to']['lon']   ?? 0), 4);
-
-        return "transit:{$fLat},{$fLng}:{$tLat},{$tLng}";
     }
 
     /**

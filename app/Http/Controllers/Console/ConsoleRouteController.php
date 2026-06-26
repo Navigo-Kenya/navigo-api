@@ -192,24 +192,28 @@ class ConsoleRouteController extends Controller
         return response()->json($stops);
     }
 
-    // Upsert the PostGIS shape for a route
+    // Upsert the canonical shape for a route+direction and link all its trips to it.
+    // Shape IDs: direction 0 → "{route_id}_shape", direction 1 → "{route_id}_shape_1"
     public function saveShape(Request $request, string $id): JsonResponse
     {
         if ($request->user()->isOperator()) {
             return response()->json(['message' => 'Operators cannot edit route shapes.'], 403);
         }
 
-        Route::findOrFail($id);
+        $route = Route::findOrFail($id);
 
         $data = $request->validate([
-            'points'     => 'required|array|min:2',
-            'points.*.0' => 'required|numeric|between:-180,180',
-            'points.*.1' => 'required|numeric|between:-90,90',
+            'points'       => 'required|array|min:2',
+            'points.*.0'   => 'required|numeric|between:-180,180',
+            'points.*.1'   => 'required|numeric|between:-90,90',
+            'direction_id' => 'nullable|integer|in:0,1',
         ]);
+
+        $directionId = (int) ($data['direction_id'] ?? 0);
+        $shapeId     = $directionId === 0 ? "{$id}_shape" : "{$id}_shape_1";
 
         $lineParts = implode(',', array_map(fn ($p) => "{$p[0]} {$p[1]}", $data['points']));
         $lineWkt   = "LINESTRING({$lineParts})";
-        $shapeId   = "{$id}_shape";
 
         \Illuminate\Support\Facades\DB::statement(
             "INSERT INTO shapes (shape_id, path, created_at, updated_at)
@@ -218,7 +222,13 @@ class ConsoleRouteController extends Controller
             [$shapeId, $lineWkt]
         );
 
-        return response()->json(['shape_id' => $shapeId]);
+        // Point every trip in this route+direction at the canonical shape.
+        $tripsUpdated = \Illuminate\Support\Facades\DB::table('trips')
+            ->where('route_id', $route->route_id)
+            ->where('direction_id', $directionId)
+            ->update(['shape_id' => $shapeId, 'updated_at' => now()]);
+
+        return response()->json(['shape_id' => $shapeId, 'trips_updated' => $tripsUpdated]);
     }
 
     // Replace all stop-times for the route's main trip
@@ -235,19 +245,25 @@ class ConsoleRouteController extends Controller
             'stops.*.stop_id'        => 'required|string|exists:stops,id',
             'stops.*.arrival_time'   => ['required', 'string', 'regex:/^\d{1,2}:\d{2}:\d{2}$/'],
             'stops.*.departure_time' => ['required', 'string', 'regex:/^\d{1,2}:\d{2}:\d{2}$/'],
-            'shape_id'               => 'nullable|string|exists:shapes,shape_id',
             'headsign'               => 'nullable|string|max:100',
+            // shape_id is intentionally NOT accepted here — shapes are managed exclusively
+            // through the saveShape() endpoint so they are never silently overwritten.
         ]);
 
         \Illuminate\Support\Facades\DB::transaction(function () use ($data, $route) {
-            $tripId = "{$route->route_id}_trip_1";
+            $tripId          = "{$route->route_id}_trip_1";
+            $canonicalShape  = "{$route->route_id}_shape";  // direction-0 canonical
 
             Trip::updateOrCreate(
                 ['trip_id' => $tripId],
                 [
                     'route_id'      => $route->route_id,
                     'service_id'    => 'default',
-                    'shape_id'      => $data['shape_id'] ?? null,
+                    // Only set shape_id when no shape has been explicitly saved yet.
+                    // If the canonical shape already exists, leave the existing value alone.
+                    'shape_id'      => \App\Models\Shape::where('shape_id', $canonicalShape)->exists()
+                                           ? $canonicalShape
+                                           : null,
                     'trip_headsign' => $data['headsign'] ?? $route->route_short_name,
                     'direction_id'  => 0,
                 ]

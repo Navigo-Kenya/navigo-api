@@ -132,9 +132,16 @@ class ConsoleTripController extends Controller
             'points.*.1' => 'required|numeric|between:-90,90',
         ]);
 
+        $directionId = (int) ($trip->direction_id ?? 0);
+
+        // Use the canonical route-direction shape ID, not a per-trip one.
+        // direction 0 → "{route_id}_shape", direction 1 → "{route_id}_shape_1"
+        $shapeId = $directionId === 0
+            ? "{$trip->route_id}_shape"
+            : "{$trip->route_id}_shape_1";
+
         $lineParts = implode(',', array_map(fn ($p) => "{$p[0]} {$p[1]}", $data['points']));
         $lineWkt   = "LINESTRING({$lineParts})";
-        $shapeId   = "{$trip->trip_id}_shape";
 
         DB::statement(
             "INSERT INTO shapes (shape_id, path, created_at, updated_at)
@@ -143,28 +150,13 @@ class ConsoleTripController extends Controller
             [$shapeId, $lineWkt]
         );
 
-        $trip->update(['shape_id' => $shapeId]);
-
-        // Propagate the same geometry to every other trip in this route+direction
-        // so that OTP always uses the same path regardless of which trip variant it picks.
-        $siblingShapeIds = DB::table('trips')
+        // Point every trip in this route+direction at the canonical shape.
+        $tripsUpdated = DB::table('trips')
             ->where('route_id', $trip->route_id)
-            ->where('direction_id', $trip->direction_id)
-            ->whereNotNull('shape_id')
-            ->where('shape_id', '!=', $shapeId)
-            ->pluck('shape_id')
-            ->unique()
-            ->values()
-            ->all();
+            ->where('direction_id', $directionId)
+            ->update(['shape_id' => $shapeId, 'updated_at' => now()]);
 
-        foreach ($siblingShapeIds as $sibId) {
-            DB::statement(
-                "UPDATE shapes SET path = ST_GeomFromText(?, 4326), updated_at = NOW() WHERE shape_id = ?",
-                [$lineWkt, $sibId]
-            );
-        }
-
-        return response()->json(['shape_id' => $shapeId, 'siblings_updated' => count($siblingShapeIds)]);
+        return response()->json(['shape_id' => $shapeId, 'trips_updated' => $tripsUpdated]);
     }
 
     public function saveStopTimes(Request $request, string $id): JsonResponse
