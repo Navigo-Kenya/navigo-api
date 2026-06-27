@@ -13,12 +13,6 @@ class GoogleTtsService
 
     /**
      * Synthesize text to speech and return base64-encoded MP3.
-     *
-     * Non-fatal: callers should handle null gracefully (frontend falls back to expo-speech).
-     *
-     * @param  string $text         Text to speak (truncated to 500 chars internally)
-     * @param  float  $speakingRate Playback speed multiplier (0.25–4.0)
-     * @return string|null          Base64-encoded MP3, or null on failure
      */
     public function synthesize(
         string $text,
@@ -36,13 +30,16 @@ class GoogleTtsService
             return null;
         }
 
-        // Google TTS rejects requests where voiceName and languageCode don't share the
-        // same locale prefix (e.g. 'en-US-Neural2-D' requires 'en-US', not 'en-KE').
-        // Derive the correct locale from the voice name so callers can freely set both
-        // independently without worrying about compatibility.
-        $voiceParts = explode('-', $voiceName);
-        if (count($voiceParts) >= 2 && !str_starts_with($voiceName, $languageCode)) {
-            $languageCode = $voiceParts[0] . '-' . $voiceParts[1];
+        // ── Google TTS Strict Locale Match Fix ──
+        // Google TTS rejects requests where voiceName and languageCode don't share the same locale.
+        // If the frontend requests a specific language (e.g., sw-KE) but the user's saved voice 
+        // persona is US English, map it dynamically to a matching local voice of the same gender.
+        if (!str_starts_with($voiceName, $languageCode)) {
+            // Determine gender from the default voices used in the app (D and J are Male)
+            $isMale = in_array($voiceName, ['en-US-Neural2-D', 'en-US-Neural2-J', 'en-KE-Standard-B', 'sw-KE-Standard-B']);
+            
+            // In Google Cloud TTS Standard voices, 'A' is typically Female, 'B' is Male.
+            $voiceName = $languageCode . '-Standard-' . ($isMale ? 'B' : 'A');
         }
 
         try {
@@ -77,7 +74,7 @@ class GoogleTtsService
                 return null;
             }
 
-            return $audioContent; // Already base64-encoded MP3
+            return $audioContent;
 
         } catch (\Throwable $e) {
             Log::error('Google TTS exception: ' . $e->getMessage());
