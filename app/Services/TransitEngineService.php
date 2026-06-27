@@ -2,14 +2,15 @@
 
 namespace App\Services;
 
+use App\Models\Route;
+use App\Models\Stop;
+use Carbon\Carbon;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use App\Models\Route;
-use App\Models\Stop;
 
 class TransitEngineService
 {
@@ -73,22 +74,46 @@ class TransitEngineService
             }
         }
 
+        // Parse departure time for FareService modifier evaluation (peak hours, day-of-week).
+        try {
+            $departureCarbon = Carbon::createFromFormat(
+                'Y-m-d h:ia', "{$resolvedDate} {$resolvedTime}", 'Africa/Nairobi'
+            );
+        } catch (Exception) {
+            $departureCarbon = now()->timezone('Africa/Nairobi');
+        }
+
         $cacheKey = 'otp:journey:v2:' . md5("{$fromLat},{$fromLng},{$toLat},{$toLng},{$resolvedDate},{$resolvedTime},{$walkReluctance},{$maxWalkDistance}");
 
         $cached = Cache::get($cacheKey);
         if ($cached !== null) {
-            return $cached;
+            return $this->enrichWithFares($cached, $departureCarbon);
         }
 
         $result = $this->fetchFromOtp($fromLat, $fromLng, $toLat, $toLng, $resolvedDate, $resolvedTime, $walkReluctance, $maxWalkDistance);
 
         // Only cache a real response (including empty []). Do not cache null — null means
         // OTP is unreachable and the instance may recover before the TTL expires.
+        // Fare data is NOT cached here — it is applied fresh on every read so that
+        // modifier changes (peak-hours, events) reflect within their 60-second cache window.
         if ($result !== null) {
             Cache::put($cacheKey, $result, $this->otpCacheTtl);
         }
 
-        return $result;
+        return $result !== null ? $this->enrichWithFares($result, $departureCarbon) : $result;
+    }
+
+    private function enrichWithFares(array $itineraries, Carbon $departureCarbon): array
+    {
+        if (empty($itineraries)) {
+            return $itineraries;
+        }
+
+        $fareService = app(FareService::class);
+
+        return array_map(fn ($it) => array_merge($it, [
+            'segments' => $fareService->resolveItineraryFares($it['segments'], $departureCarbon),
+        ]), $itineraries);
     }
 
     private function fetchFromOtp( float $fromLat, float $fromLng, float $toLat, float $toLng, string $date, string $time, float $walkReluctance, int $maxWalkDistance = 1500): ?array
@@ -199,23 +224,29 @@ class TransitEngineService
 
             $totalDistance += $distance;
 
-            // Extract the route color
-            $routeColor = null;
+            // Extract route color, canonical route_id, and agency_id from DB
+            $routeColor       = null;
+            $cleanRouteId     = null;
+            $resolvedAgencyId = null;
             if ($isTransit) {
                 $rawRouteId = $leg['routeId'] ?? null;
                 if ($rawRouteId) {
                     $cleanRouteId = \str_contains($rawRouteId, ':') ? explode(':', $rawRouteId, 2)[1] : $rawRouteId;
                     try {
-                        // Check both the Route ID AND the Route Name!
                         $dbRoute = Route::where('route_id', $cleanRouteId)
-                                        ->orWhere('route_short_name', $routeName) // Ensure your DB column name is correct here
-                                        ->orWhere('name', $routeName)             // Or whatever your name column is
+                                        ->orWhere('route_short_name', $routeName)
+                                        ->orWhere('name', $routeName)
                                         ->first();
 
-                        if ($dbRoute && !empty($dbRoute->route_color)) {
-                            $routeColor = str_starts_with($dbRoute->route_color, '#')
-                                ? $dbRoute->route_color
-                                : '#' . $dbRoute->route_color;
+                        if ($dbRoute) {
+                            if (!empty($dbRoute->route_color)) {
+                                $routeColor = str_starts_with($dbRoute->route_color, '#')
+                                    ? $dbRoute->route_color
+                                    : '#' . $dbRoute->route_color;
+                            }
+                            // Use canonical IDs from DB for fare resolution
+                            $cleanRouteId     = $dbRoute->route_id;
+                            $resolvedAgencyId = $dbRoute->agency_id;
                         }
                     } catch (Exception $e) {
                         // Silently fallback if the model fails
@@ -309,6 +340,9 @@ class TransitEngineService
                     'lat'  => $leg['to']['lat'],
                     'lng'  => $leg['to']['lon'],
                 ],
+                // Internal fields consumed by FareService; stripped before API response.
+                '_route_id'   => $cleanRouteId,
+                '_agency_id'  => $resolvedAgencyId,
             ];
         }
 
