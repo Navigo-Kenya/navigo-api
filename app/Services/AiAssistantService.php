@@ -21,7 +21,10 @@ class AiAssistantService
         private GoogleTtsService     $tts,
     ) {}
 
-    private function systemPrompt(?string $responseStyle = null): string
+    /**
+     * Build the dynamic prompt based on personality style and language code.
+     */
+    private function systemPrompt(?string $responseStyle = null, string $languageCode = 'en-US'): string
     {
         $base = <<<'PROMPT'
             You are Kwame, the voice assistant for Navigo, a public transit navigation platform.
@@ -45,7 +48,21 @@ class AiAssistantService
             default        => '',
         };
 
-        return $suffix ? $base . "\n\n" . $suffix : $base;
+        // ── Language Translation Enforcement ──
+        $langInstruction = match ($languageCode) {
+            'sw-KE' => 'CRITICAL: You MUST respond entirely in Swahili.',
+            'fr-FR' => 'CRITICAL: You MUST respond entirely in French.',
+            'en-KE' => 'CRITICAL: You MUST respond in English, but naturally sprinkle in Kenyan phrasing and vocabulary (like "Sasa", "Matatu", etc).',
+            default => 'CRITICAL: You MUST respond entirely in English.',
+        };
+
+        $finalPrompt = $base;
+        if ($suffix) {
+            $finalPrompt .= "\n\n" . $suffix;
+        }
+        $finalPrompt .= "\n\n" . $langInstruction;
+
+        return $finalPrompt;
     }
 
     private function tools(): array
@@ -98,19 +115,19 @@ class AiAssistantService
         $hasAudio = !empty($audioFile['base64']);
 
         // ── Gemini accepts audio natively — no STT step needed ────────────────
-        // For text turns add a normal history entry; for audio turns add a
-        // placeholder entry that buildContents() will append the inlineData to.
         if (!$hasAudio && empty($text)) return null;
 
         $history[] = ['role' => 'user', 'content' => $text ?? '[Voice message]'];
 
+        // Extract settings payload variables
         $responseStyle = $voiceSettings['response_style'] ?? null;
+        $languageCode  = $voiceSettings['language_code'] ?? 'en-US';
 
         // ── Step 1: LLM turn 1 — Gemini transcribes + detects intent ──────────
         try {
             $firstResponse = $this->llm->chat(
                 $history,
-                $this->systemPrompt($responseStyle),
+                $this->systemPrompt($responseStyle, $languageCode),
                 $this->tools(),
                 true,
                 $hasAudio ? $audioFile : null,
@@ -144,9 +161,19 @@ class AiAssistantService
             // ── Unresolved location → return action UI payload ─────────────────
             if (isset($resolvedCoords['actionRequired'])) {
                 $actionRequired = $resolvedCoords['actionRequired'];
-                $transcript = $actionRequired['isAuthenticated']
-                    ? "I couldn't locate '{$actionRequired['unresolvedName']}'. Would you like to select one of your saved places instead?"
-                    : "I couldn't locate '{$actionRequired['unresolvedName']}'. Please sign in to access your custom saved places.";
+                
+                // Locally handle clarification prompt messages matching the user's active language choice
+                $transcript = match ($languageCode) {
+                    'sw-KE' => $actionRequired['isAuthenticated']
+                        ? "Sikuweza kupata '{$actionRequired['unresolvedName']}'. Je, ungependa kuchagua moja ya maeneo uliyohifadhi?"
+                        : "Sikuweza kupata '{$actionRequired['unresolvedName']}'. Tafadhali ingia katika akaunti yako ili kupata maeneo yako yaliyohifadhiwa.",
+                    'fr-FR' => $actionRequired['isAuthenticated']
+                        ? "Je n'ai pas pu situer '{$actionRequired['unresolvedName']}'. Souhaitez-vous sélectionner l'un de vos lieux enregistrés ?"
+                        : "Je n'ai pas pu situer '{$actionRequired['unresolvedName']}'. Veuillez vous connecter pour accéder à vos lieux enregistrés.",
+                    default => $actionRequired['isAuthenticated']
+                        ? "I couldn't locate '{$actionRequired['unresolvedName']}'. Would you like to select one of your saved places instead?"
+                        : "I couldn't locate '{$actionRequired['unresolvedName']}'. Please sign in to access your custom saved places.",
+                };
 
                 $this->saveLightweightHistory($sessionId, $history, $transcript);
                 return [
@@ -203,7 +230,7 @@ class AiAssistantService
             ];
 
             // ── Step 2b: LLM turn 2 — narrate route results (no tools) ────────
-            $secondResponse = $this->llm->chat($history, $this->systemPrompt($responseStyle), [], false);
+            $secondResponse = $this->llm->chat($history, $this->systemPrompt($responseStyle, $languageCode), [], false);
             $finalText      = $secondResponse['text'] ?? '';
 
         } else {
@@ -211,9 +238,12 @@ class AiAssistantService
             $finalText = $firstResponse['text'] ?? '';
         }
 
-        // Guard against empty final text (e.g. Gemini SAFETY block)
         if (empty(trim($finalText))) {
-            $finalText = "I'm not sure how to help with that. Could you rephrase?";
+            $finalText = match ($languageCode) {
+                'sw-KE' => "Sina uhakika jinsi ya kusaidia na hilo. Je, unaweza kueleza tena?",
+                'fr-FR' => "Je ne sais pas comment vous aider. Pourriez-vous reformuler ?",
+                default => "I'm not sure how to help with that. Could you rephrase?",
+            };
         }
 
         // ── Step 3: TTS — text → audio ─────────────────────────────────────────
@@ -222,7 +252,7 @@ class AiAssistantService
             (float) ($voiceSettings['speaking_rate'] ?? 1.05),
             $voiceSettings['voice_name']    ?? 'en-US-Neural2-D',
             (float) ($voiceSettings['pitch'] ?? 0.0),
-            $voiceSettings['language_code'] ?? 'en-US',
+            $languageCode,
         );
 
         $this->saveLightweightHistory($sessionId, $history, $finalText);
@@ -244,10 +274,7 @@ class AiAssistantService
         return $output;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Location resolution (unchanged)
-    // ─────────────────────────────────────────────────────────────────────────
-
+    // ... (Keep extractCoordinates, resolveCoordinate, handleResolutionFailure, isContextualLocation, executeTransitPlan, and saveLightweightHistory exactly as they were) ...
     private function extractCoordinates(array $args, ?float $userLat, ?float $userLng, array $aliases): array
     {
         $fromNorm = strtolower(trim($args['from'] ?? 'current location'));
@@ -340,15 +367,10 @@ class AiAssistantService
         return $routes;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // History (unchanged)
-    // ─────────────────────────────────────────────────────────────────────────
-
     private function saveLightweightHistory(string $sessionId, array $history, string $finalTranscript): void
     {
         $clean = [];
         foreach ($history as $msg) {
-            // Keep only simple role/content pairs — drop tool turns and audio refs
             if (in_array($msg['role'], ['user', 'assistant']) && !isset($msg['tool_calls'])) {
                 $clean[] = [
                     'role'    => $msg['role'],
