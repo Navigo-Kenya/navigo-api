@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\OAuthController;
 use App\Http\Controllers\Api\V1\PhoneController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\JourneyFeedbackController;
+use App\Http\Controllers\Api\V1\KwameSttController;
 use App\Http\Controllers\Api\V1\RouteController;
 use App\Http\Controllers\Api\V1\SavedJourneysController;
 use App\Http\Controllers\Api\V1\SavedPlacesController;
@@ -74,6 +75,9 @@ Route::prefix('v1')->group(function () {
 
     // ── Kwame TTS ──────────────────────────────────────────────────
     Route::post('/kwame/speak', [KwameTtsController::class, 'speak']);
+
+    // ── Kwame STT ──────────────────────────────────────────────────
+    Route::post('/kwame/transcribe', [KwameSttController::class, 'transcribe']);
 
     // ── Community (public) ─────────────────────────────────────────
     Route::get('/contributions/nearby',    [ContributionController::class, 'nearby']);

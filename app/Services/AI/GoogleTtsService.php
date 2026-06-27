@@ -11,9 +11,6 @@ class GoogleTtsService
 
     private const ENDPOINT = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 
-    /**
-     * Synthesize text to speech and return base64-encoded MP3.
-     */
     public function synthesize(
         string $text,
         float  $speakingRate = 1.05,
@@ -21,71 +18,54 @@ class GoogleTtsService
         float  $pitch        = 0.0,
         string $languageCode = 'en-US',
     ): ?string {
-        // Strip Markdown formatting — TTS engines read asterisks aloud literally
         $text = preg_replace('/\*\*([^*]+)\*\*/', '$1', $text);
         $text = preg_replace('/\*([^*]+)\*/',     '$1', $text);
         $text = trim(mb_substr($text, 0, 500));
 
-        if (empty($text)) {
-            return null;
+        if (empty($text)) return null;
+
+        // ── Persona Illusion (Pitch/Speed shifting) ──
+        if ($voiceName === 'en-US-Neural2-J') { // Devon (Deep)
+            $pitch -= 4.0; $speakingRate -= 0.05;
+        } elseif ($voiceName === 'en-US-Neural2-H') { // Zara (Bright)
+            $pitch += 3.0; $speakingRate += 0.05;
         }
 
-        $voiceParams = ['languageCode' => $languageCode];
+        $isMale = in_array($voiceName, ['en-US-Neural2-D', 'en-US-Neural2-J']);
 
-        // ── The "Persona Illusion" Fix ──
-        // Since Google only has ONE male and ONE female voice for regional dialects,
-        // we create the distinct personas by dynamically shifting the pitch and speed.
-        
-        if (str_starts_with($voiceName, $languageCode)) {
-            // Natively matches (e.g., US English requesting US English)
-            $voiceParams['name'] = $voiceName;
-        } else {
-            // Drop the explicit name to prevent 422 errors. Let Google pick the default valid voice.
-            $isMale = in_array($voiceName, ['en-US-Neural2-D', 'en-US-Neural2-J']);
-            $voiceParams['ssmlGender'] = $isMale ? 'MALE' : 'FEMALE';
-
-            // Apply Persona Modifiers so Devon doesn't sound exactly like Marcus
-            if ($voiceName === 'en-US-Neural2-J') { // Devon (Deep)
-                $pitch -= 4.0;
-                $speakingRate -= 0.05;
-            } elseif ($voiceName === 'en-US-Neural2-H') { // Zara (Bright)
-                $pitch += 3.0;
-                $speakingRate += 0.05;
-            }
-            // Marcus (D) and Amara (F) remain at baseline (0.0 offset)
-        }
-
-        try {
-            $response = Http::withoutVerifying()
-                ->timeout(15)
+        // Helper function to attempt API calls cleanly
+        $attemptApi = function($voiceConfig) use ($text, $speakingRate, $pitch) {
+            return Http::withoutVerifying()
+                ->timeout(10)
                 ->withToken($this->getAccessToken())
                 ->post(self::ENDPOINT, [
                     'input'       => ['text' => $text],
-                    'voice'       => $voiceParams,
+                    'voice'       => $voiceConfig,
                     'audioConfig' => [
                         'audioEncoding' => 'MP3',
-                        // Clamp limits to prevent invalid Google TTS parameters
-                        'speakingRate'  => max(0.25, min(4.0, $speakingRate)), 
-                        'pitch'         => max(-20.0, min(20.0, $pitch)), 
+                        'speakingRate'  => max(0.25, min(4.0, $speakingRate)),
+                        'pitch'         => max(-20.0, min(20.0, $pitch)),
                     ],
                 ]);
+        };
 
-            if (!$response->successful()) {
-                Log::error('Google TTS error', [
-                    'status' => $response->status(),
-                    'body'   => $response->json(),
-                ]);
-                return null;
+        try {
+            // ATTEMPT 1: Exact Name (Works for native US English)
+            if (str_starts_with($voiceName, $languageCode)) {
+                $res = $attemptApi(['languageCode' => $languageCode, 'name' => $voiceName]);
+                if ($res->successful()) return $res->json('audioContent');
             }
 
-            $audioContent = $response->json('audioContent');
+            // ATTEMPT 2: Fallback to Gender + Language (Works for Swahili/French)
+            $res = $attemptApi(['languageCode' => $languageCode, 'ssmlGender' => $isMale ? 'MALE' : 'FEMALE']);
+            if ($res->successful()) return $res->json('audioContent');
 
-            if (empty($audioContent)) {
-                Log::warning('Google TTS: empty audioContent in response.');
-                return null;
-            }
+            // ATTEMPT 3: Ultimate Fallback (Just the language code, let Google pick)
+            $res = $attemptApi(['languageCode' => $languageCode]);
+            if ($res->successful()) return $res->json('audioContent');
 
-            return $audioContent;
+            Log::error('Google TTS completely failed all fallbacks.', ['status' => $res->status(), 'body' => $res->json()]);
+            return null;
 
         } catch (\Throwable $e) {
             Log::error('Google TTS exception: ' . $e->getMessage());
