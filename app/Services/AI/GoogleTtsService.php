@@ -32,43 +32,27 @@ class GoogleTtsService
 
         $voiceParams = ['languageCode' => $languageCode];
 
-        // ── Voice Persona Mapping Matrix ──
-        // Maps the US English personas to distinct regional voices where available.
-        $voiceMatrix = [
-            'en-US-Neural2-D' => [ // Marcus (Male 1 - Warm)
-                'en-KE' => 'en-KE-Standard-B',
-                'sw-KE' => 'sw-KE-Standard-B',
-                'fr-FR' => 'fr-FR-Neural2-B',
-            ],
-            'en-US-Neural2-J' => [ // Devon (Male 2 - Deep)
-                'en-KE' => 'en-KE-Standard-C',
-                'sw-KE' => 'sw-KE-Standard-B', // Swahili only has 1 male voice
-                'fr-FR' => 'fr-FR-Neural2-D',
-            ],
-            'en-US-Neural2-F' => [ // Amara (Female 1 - Warm)
-                'en-KE' => 'en-KE-Standard-A',
-                'sw-KE' => 'sw-KE-Standard-A',
-                'fr-FR' => 'fr-FR-Neural2-A',
-            ],
-            'en-US-Neural2-H' => [ // Zara (Female 2 - Bright)
-                'en-KE' => 'en-KE-Standard-D',
-                'sw-KE' => 'sw-KE-Standard-A', // Swahili only has 1 female voice
-                'fr-FR' => 'fr-FR-Neural2-C',
-            ]
-        ];
-
-        // If the voice natively matches the requested language, use it directly.
+        // ── The "Persona Illusion" Fix ──
+        // Since Google only has ONE male and ONE female voice for regional dialects,
+        // we create the distinct personas by dynamically shifting the pitch and speed.
+        
         if (str_starts_with($voiceName, $languageCode)) {
+            // Natively matches (e.g., US English requesting US English)
             $voiceParams['name'] = $voiceName;
         } else {
-            // Look up the explicit local voice for this persona
-            if (isset($voiceMatrix[$voiceName][$languageCode])) {
-                $voiceParams['name'] = $voiceMatrix[$voiceName][$languageCode];
-            } else {
-                // Absolute Fallback: if a random language is added later, fall back to gender
-                $isMale = in_array($voiceName, ['en-US-Neural2-D', 'en-US-Neural2-J']);
-                $voiceParams['ssmlGender'] = $isMale ? 'MALE' : 'FEMALE';
+            // Drop the explicit name to prevent 422 errors. Let Google pick the default valid voice.
+            $isMale = in_array($voiceName, ['en-US-Neural2-D', 'en-US-Neural2-J']);
+            $voiceParams['ssmlGender'] = $isMale ? 'MALE' : 'FEMALE';
+
+            // Apply Persona Modifiers so Devon doesn't sound exactly like Marcus
+            if ($voiceName === 'en-US-Neural2-J') { // Devon (Deep)
+                $pitch -= 4.0;
+                $speakingRate -= 0.05;
+            } elseif ($voiceName === 'en-US-Neural2-H') { // Zara (Bright)
+                $pitch += 3.0;
+                $speakingRate += 0.05;
             }
+            // Marcus (D) and Amara (F) remain at baseline (0.0 offset)
         }
 
         try {
@@ -80,8 +64,9 @@ class GoogleTtsService
                     'voice'       => $voiceParams,
                     'audioConfig' => [
                         'audioEncoding' => 'MP3',
-                        'speakingRate'  => $speakingRate,
-                        'pitch'         => $pitch,
+                        // Clamp limits to prevent invalid Google TTS parameters
+                        'speakingRate'  => max(0.25, min(4.0, $speakingRate)), 
+                        'pitch'         => max(-20.0, min(20.0, $pitch)), 
                     ],
                 ]);
 
