@@ -30,19 +30,45 @@ class GoogleTtsService
             return null;
         }
 
-        // ── Google TTS Auto-Resolve Fix ──
-        $voiceParams = [
-            'languageCode' => $languageCode,
+        $voiceParams = ['languageCode' => $languageCode];
+
+        // ── Voice Persona Mapping Matrix ──
+        // Maps the US English personas to distinct regional voices where available.
+        $voiceMatrix = [
+            'en-US-Neural2-D' => [ // Marcus (Male 1 - Warm)
+                'en-KE' => 'en-KE-Standard-B',
+                'sw-KE' => 'sw-KE-Standard-B',
+                'fr-FR' => 'fr-FR-Neural2-B',
+            ],
+            'en-US-Neural2-J' => [ // Devon (Male 2 - Deep)
+                'en-KE' => 'en-KE-Standard-C',
+                'sw-KE' => 'sw-KE-Standard-B', // Swahili only has 1 male voice
+                'fr-FR' => 'fr-FR-Neural2-D',
+            ],
+            'en-US-Neural2-F' => [ // Amara (Female 1 - Warm)
+                'en-KE' => 'en-KE-Standard-A',
+                'sw-KE' => 'sw-KE-Standard-A',
+                'fr-FR' => 'fr-FR-Neural2-A',
+            ],
+            'en-US-Neural2-H' => [ // Zara (Female 2 - Bright)
+                'en-KE' => 'en-KE-Standard-D',
+                'sw-KE' => 'sw-KE-Standard-A', // Swahili only has 1 female voice
+                'fr-FR' => 'fr-FR-Neural2-C',
+            ]
         ];
 
-        // If the exact voice name matches the requested language code, request it directly.
+        // If the voice natively matches the requested language, use it directly.
         if (str_starts_with($voiceName, $languageCode)) {
             $voiceParams['name'] = $voiceName;
         } else {
-            // Otherwise, drop the explicit name and let Google automatically select 
-            // the best available voice (Standard, Wavenet, etc.) for that region based on gender.
-            $isMale = in_array($voiceName, ['en-US-Neural2-D', 'en-US-Neural2-J']);
-            $voiceParams['ssmlGender'] = $isMale ? 'MALE' : 'FEMALE';
+            // Look up the explicit local voice for this persona
+            if (isset($voiceMatrix[$voiceName][$languageCode])) {
+                $voiceParams['name'] = $voiceMatrix[$voiceName][$languageCode];
+            } else {
+                // Absolute Fallback: if a random language is added later, fall back to gender
+                $isMale = in_array($voiceName, ['en-US-Neural2-D', 'en-US-Neural2-J']);
+                $voiceParams['ssmlGender'] = $isMale ? 'MALE' : 'FEMALE';
+            }
         }
 
         try {
