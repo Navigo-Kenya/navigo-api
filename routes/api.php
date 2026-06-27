@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OAuthController;
 use App\Http\Controllers\Api\V1\PhoneController;
 use App\Http\Controllers\Api\V1\ReportController;
+use App\Http\Controllers\Api\V1\JourneyFeedbackController;
 use App\Http\Controllers\Api\V1\RouteController;
 use App\Http\Controllers\Api\V1\SavedJourneysController;
 use App\Http\Controllers\Api\V1\SavedPlacesController;
@@ -69,6 +70,7 @@ Route::prefix('v1')->group(function () {
     // ── Journey ────────────────────────────────────────────────────
     Route::post('/journey/calculate', [RouteController::class, 'calculate']);
     Route::post('/journey/ai-plan',   [AiTransitController::class, 'planRouteWithAi']);
+    Route::post('/journey/feedback',  [JourneyFeedbackController::class, 'store'])->middleware('throttle:60,1');
 
     // ── Kwame TTS ──────────────────────────────────────────────────
     Route::post('/kwame/speak', [KwameTtsController::class, 'speak']);
