@@ -30,16 +30,19 @@ class GoogleTtsService
             return null;
         }
 
-        // ── Google TTS Strict Locale Match Fix ──
-        // Google TTS rejects requests where voiceName and languageCode don't share the same locale.
-        // If the frontend requests a specific language (e.g., sw-KE) but the user's saved voice 
-        // persona is US English, map it dynamically to a matching local voice of the same gender.
-        if (!str_starts_with($voiceName, $languageCode)) {
-            // Determine gender from the default voices used in the app (D and J are Male)
-            $isMale = in_array($voiceName, ['en-US-Neural2-D', 'en-US-Neural2-J', 'en-KE-Standard-B', 'sw-KE-Standard-B']);
-            
-            // In Google Cloud TTS Standard voices, 'A' is typically Female, 'B' is Male.
-            $voiceName = $languageCode . '-Standard-' . ($isMale ? 'B' : 'A');
+        // ── Google TTS Auto-Resolve Fix ──
+        $voiceParams = [
+            'languageCode' => $languageCode,
+        ];
+
+        // If the exact voice name matches the requested language code, request it directly.
+        if (str_starts_with($voiceName, $languageCode)) {
+            $voiceParams['name'] = $voiceName;
+        } else {
+            // Otherwise, drop the explicit name and let Google automatically select 
+            // the best available voice (Standard, Wavenet, etc.) for that region based on gender.
+            $isMale = in_array($voiceName, ['en-US-Neural2-D', 'en-US-Neural2-J']);
+            $voiceParams['ssmlGender'] = $isMale ? 'MALE' : 'FEMALE';
         }
 
         try {
@@ -48,10 +51,7 @@ class GoogleTtsService
                 ->withToken($this->getAccessToken())
                 ->post(self::ENDPOINT, [
                     'input'       => ['text' => $text],
-                    'voice'       => [
-                        'languageCode' => $languageCode,
-                        'name'         => $voiceName,
-                    ],
+                    'voice'       => $voiceParams,
                     'audioConfig' => [
                         'audioEncoding' => 'MP3',
                         'speakingRate'  => $speakingRate,
