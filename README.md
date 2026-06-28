@@ -42,7 +42,8 @@ Hopln API is the server-side backbone of the **Hopln** transit platform, a publi
 7. [Getting Started](#getting-started)
 8. [Environment Variables](#environment-variables)
 9. [Running Tests](#running-tests)
-10. [Transit Data Strategy](#transit-data-strategy)
+10. [Backup & Restore](#backup--restore)
+11. [Transit Data Strategy](#transit-data-strategy)
 
 ---
 
@@ -545,6 +546,106 @@ php artisan test
 php artisan test --filter=RouteCalculationTest
 
 ./vendor/bin/pint   # code style
+```
+
+---
+
+## Backup & Restore
+
+Three scripts in `scripts/` handle the full backup lifecycle. All backups go to a **private** Cloudflare R2 bucket (`hopln-backups`) — separate from the public files bucket used by `StorageService`.
+
+### What gets backed up
+
+| Target | Destination in R2 | Retention |
+|---|---|---|
+| PostgreSQL database (`pg_dump`) | `postgres/hopln_pg_<timestamp>.sql.gz` | 30 days |
+| OTP graph (`graph.obj`) | `otp/graph_<timestamp>.obj` | 14 days |
+| Laravel `storage/app/` | `storage/hopln_storage_<timestamp>.tar.gz` | 7 days |
+| `.env` file | `env/env_<timestamp>.env` | 90 days |
+
+### First-time setup (run once on the server)
+
+**Prerequisites:** R2 credentials must already be in `.env` (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`).
+
+```bash
+# 1. Create the private backup bucket in the Cloudflare dashboard first:
+#    https://dash.cloudflare.com → R2 Object Storage → Create bucket → "hopln-backups"
+#    Set visibility: Private
+
+# 2. Run the setup script (installs rclone, configures R2, registers cron, runs a test backup)
+chmod +x scripts/backup-setup.sh
+./scripts/backup-setup.sh
+```
+
+The setup script does the following automatically:
+- Installs `rclone` via `apt`
+- Writes `~/.rclone.conf` (from `.env` credentials, mode `600`)
+- Creates `/var/log/hopln-backup.log` with correct ownership
+- Registers the daily cron job (`0 2 * * *`)
+- Runs one test backup to verify everything works
+
+### Manual backup
+
+```bash
+./scripts/backup.sh
+```
+
+Logs to stdout. In production it appends to `/var/log/hopln-backup.log`.
+
+### Cron schedule
+
+```cron
+0 2 * * * /opt/hopln/api/scripts/backup.sh >> /var/log/hopln-backup.log 2>&1
+```
+
+Registered automatically by `backup-setup.sh`. Verify with `crontab -l`.
+
+### Browse backups
+
+```bash
+rclone --config /opt/hopln/api/.rclone.conf ls r2:hopln-backups/
+```
+
+Or use the restore script's list mode:
+
+```bash
+./scripts/restore.sh list
+```
+
+### Restore
+
+```bash
+# List all available backups
+./scripts/restore.sh list
+
+# Restore the database (interactive — prompts for which snapshot)
+./scripts/restore.sh db
+
+# Restore a specific DB snapshot by timestamp
+./scripts/restore.sh db 20240615_020000
+
+# Restore the latest storage/app archive
+./scripts/restore.sh storage
+
+# Restore the latest .env to .env.restored (review before overwriting)
+./scripts/restore.sh env
+```
+
+> **Warning:** `restore.sh db` drops and recreates all tables from the dump. Always run on a maintenance window. It also automatically flushes the Redis journey cache after restore.
+
+### rclone config reference
+
+The config is written to `/opt/hopln/api/.rclone.conf` (mode `600`) by `backup-setup.sh` and re-generated automatically by `backup.sh` if deleted:
+
+```ini
+[r2]
+type = s3
+provider = Cloudflare
+access_key_id = <R2_ACCESS_KEY_ID from .env>
+secret_access_key = <R2_SECRET_ACCESS_KEY from .env>
+endpoint = <R2_ENDPOINT from .env>
+acl = private
+no_check_bucket = true
 ```
 
 ---
