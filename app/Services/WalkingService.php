@@ -8,26 +8,18 @@ use Illuminate\Support\Facades\Log;
 
 class WalkingService
 {
-    private string $apiKey;
+    private string $mapboxKey;
+    private string $googleKey;
 
     public function __construct()
     {
-        $this->apiKey = config('transit.google_maps_key', '');
+        $this->mapboxKey = config('transit.mapbox_key', '');
+        $this->googleKey = config('transit.google_maps_key', '');
     }
 
     /**
-     * Returns a road-snapped walking route between two points.
-     *
-     * Caching layers (cheapest first):
-     *   1. DB table `cached_walking_routes` keyed by coords rounded to 4dp, permanent
-     *   2. Google Directions API (walking), called at most once per unique O/D pair
-     *   3. OTP fallback, used when walk < 100 m, API key missing, or API fails
-     *
-     * @param  array $otpCoords     [[lat,lng],...] from OTP legGeometry
-     * @param  array $otpSteps      walk steps from OTP
-     * @param  int   $otpDistanceM  distance in metres from OTP
-     * @param  int   $otpDurationS  duration in seconds from OTP
-     * @return array{coordinates:array, walk_steps:array, distance:int, duration:int}
+     * The Chimera Pipeline: 
+     * Merges Mapbox's perfect visual geometry with Google's rich text instructions.
      */
     public function getRoute(
         float $fromLat, float $fromLng,
@@ -44,8 +36,7 @@ class WalkingService
             'duration'    => $otpDurationS,
         ];
 
-        // Very short walks or missing key, OTP geometry is precise enough
-        if ($otpDistanceM < 100 || empty($this->apiKey)) {
+        if ($otpDistanceM < 100 || empty($this->mapboxKey) || empty($this->googleKey)) {
             return $fallback;
         }
 
@@ -69,9 +60,23 @@ class WalkingService
             ];
         }
 
-        $result = $this->fetchFromGoogle($fromLat, $fromLng, $toLat, $toLng);
+        // Fetch from both providers
+        $mapbox = $this->fetchFromMapbox($fromLat, $fromLng, $toLat, $toLng);
+        $google = $this->fetchFromGoogle($fromLat, $fromLng, $toLat, $toLng);
 
-        if (!$result) {
+        // the Chimera Pipeline: Merge Mapbox's perfect geometry with Google's rich text instructions
+        if ($mapbox && $google) {
+            $result = [
+                'coordinates' => $mapbox['coordinates'], // Mapbox Body (Visuals & Snapping)
+                'walk_steps'  => $google['walk_steps'],  // Google Brain (Rich text & Landmarks)
+                'distance'    => $mapbox['distance'],
+                'duration'    => $google['duration'],
+            ];
+        } elseif ($mapbox) {
+            $result = $mapbox;
+        } elseif ($google) {
+            $result = $google;
+        } else {
             return $fallback;
         }
 
@@ -87,11 +92,37 @@ class WalkingService
                 'duration_s'  => $result['duration'],
             ]);
         } catch (\Exception $e) {
-            // Duplicate insert from a race condition, not critical
             Log::debug('WalkingService cache write skipped', ['error' => $e->getMessage()]);
         }
 
         return $result;
+    }
+
+    private function fetchFromMapbox(float $fromLat, float $fromLng, float $toLat, float $toLng): ?array
+    {
+        try {
+            $coords = "{$fromLng},{$fromLat};{$toLng},{$toLat}";
+            $response = Http::timeout(8)->get("https://api.mapbox.com/directions/v5/mapbox/walking/{$coords}", [
+                'geometries'   => 'polyline',
+                'steps'        => 'true',
+                'overview'     => 'full',
+                'access_token' => $this->mapboxKey,
+            ]);
+        } catch (\Exception $e) {
+            return null;
+        }
+
+        if (!$response->ok() || ($response->json('code') !== 'Ok')) return null;
+
+        $route = $response->json('routes')[0];
+        
+        // We only care about Mapbox's perfect geometry and total distance
+        return [
+            'coordinates' => $this->decodePolyline($route['geometry']),
+            'distance'    => (int) round($route['distance']),
+            'walk_steps'  => [], // Dropped in favor of Google
+            'duration'    => 0,
+        ];
     }
 
     private function fetchFromGoogle(float $fromLat, float $fromLng, float $toLat, float $toLng): ?array
@@ -102,39 +133,22 @@ class WalkingService
                 'destination' => "{$toLat},{$toLng}",
                 'mode'        => 'walking',
                 'region'      => 'ke',
-                'key'         => $this->apiKey,
+                'key'         => $this->googleKey,
             ]);
         } catch (\Exception $e) {
-            Log::warning('Google Directions API timeout', ['error' => $e->getMessage()]);
             return null;
         }
 
-        if (!$response->ok()) {
-            return null;
-        }
+        if (!$response->ok() || ($response->json('status') !== 'OK')) return null;
 
-        $data = $response->json();
-
-        if (($data['status'] ?? '') !== 'OK' || empty($data['routes'])) {
-            Log::warning('Google Directions returned no routes', ['status' => $data['status'] ?? 'unknown']);
-            return null;
-        }
-
-        $route = $data['routes'][0];
-        $leg   = $route['legs'][0];
-
-        $coordinates = $this->decodePolyline($route['overview_polyline']['points']);
-
+        $leg = $response->json('routes')[0]['legs'][0];
         $walkSteps = [];
+
         foreach ($leg['steps'] as $step) {
             $html = $step['html_instructions'];
-            // Split the primary instruction from the secondary "Pass by..." note
-            // before stripping tags, so block elements become spaces not word merges.
             $cleaned = preg_replace('/<(div|br|span|p)[^>]*>/i', ' ', $html);
-            $cleaned = trim(strip_tags($cleaned));
-            $cleaned = preg_replace('/\s{2,}/', ' ', $cleaned);
+            $cleaned = preg_replace('/\s{2,}/', ' ', trim(strip_tags($cleaned)));
 
-            // Separate "Pass by ..." note into its own field for richer UI display
             $note = null;
             if (preg_match('/\bPass by\b(.+)$/i', $cleaned, $m)) {
                 $note    = trim($m[0]);
@@ -152,7 +166,7 @@ class WalkingService
         }
 
         return [
-            'coordinates' => $coordinates,
+            'coordinates' => [], // Dropped in favor of Mapbox
             'walk_steps'  => $walkSteps,
             'distance'    => $leg['distance']['value'],
             'duration'    => $leg['duration']['value'],
@@ -164,24 +178,21 @@ class WalkingService
         $coords = [];
         $index  = 0;
         $len    = \strlen($encoded);
-        $lat    = 0;
-        $lng    = 0;
+        $lat = 0; $lng = 0;
 
         while ($index < $len) {
             foreach (['lat', 'lng'] as $axis) {
-                $shift  = 0;
-                $result = 0;
+                $shift = 0; $result = 0;
                 do {
-                    $b       = \ord($encoded[$index++]) - 63;
+                    $b = \ord($encoded[$index++]) - 63;
                     $result |= ($b & 0x1f) << $shift;
-                    $shift  += 5;
+                    $shift += 5;
                 } while ($b >= 0x20 && $index < $len);
                 $delta = ($result & 1) ? ~($result >> 1) : ($result >> 1);
-                if ($axis === 'lat') { $lat += $delta; } else { $lng += $delta; }
+                if ($axis === 'lat') $lat += $delta; else $lng += $delta;
             }
             $coords[] = [round($lat / 1e5, 6), round($lng / 1e5, 6)];
         }
-
         return $coords;
     }
 }

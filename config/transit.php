@@ -14,6 +14,15 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Mapbox API key (server-side)
+    |--------------------------------------------------------------------------
+    | Used by WalkingService to call the Directions API for road-snapped
+    | walking routes that perfectly align with our Mapbox frontend.
+    */
+    'mapbox_key' => env('MAPBOX_API_KEY', ''),
+    
+    /*
+    |--------------------------------------------------------------------------
     | Google Maps API key (server-side)
     |--------------------------------------------------------------------------
     | Used by WalkingService to call the Directions API for road-snapped
