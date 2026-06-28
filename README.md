@@ -499,11 +499,11 @@ GEMINI_API_KEY=
 GOOGLE_MAPS_API_KEY=
 
 # Cloudflare R2 object storage
-R2_ACCESS_KEY_ID=
-R2_SECRET_ACCESS_KEY=
-R2_BUCKET=
-R2_ENDPOINT=https://<account_id>.r2.cloudflarestorage.com
-R2_PUBLIC_URL=https://files.navigo.co.ke   # custom domain pointed at the R2 bucket
+CLOUDFLARE_R2_ACCESS_KEY_ID=
+CLOUDFLARE_R2_SECRET_ACCESS_KEY=
+CLOUDFLARE_R2_BUCKET=navigo-files
+CLOUDFLARE_R2_ENDPOINT=https://<account_id>.r2.cloudflarestorage.com
+CLOUDFLARE_R2_URL=https://files.navigo.co.ke   # custom domain pointed at the R2 bucket
 
 # OpenTripPlanner
 OTP_BASE_URL=http://localhost:8080
@@ -552,7 +552,7 @@ php artisan test --filter=RouteCalculationTest
 
 ## Backup & Restore
 
-Three scripts in `scripts/` handle the full backup lifecycle. All backups go to a **private** Cloudflare R2 bucket (`hopln-backups`) — separate from the public files bucket used by `StorageService`.
+Three scripts in `scripts/` handle the full backup lifecycle. All backups go to **`navigo-backups`** — a dedicated private Cloudflare R2 bucket with no public access and no custom domain, separate from the `navigo-files` public bucket used by `StorageService`. Same R2 credentials, different bucket.
 
 ### What gets backed up
 
@@ -565,14 +565,10 @@ Three scripts in `scripts/` handle the full backup lifecycle. All backups go to 
 
 ### First-time setup (run once on the server)
 
-**Prerequisites:** R2 credentials must already be in `.env` (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`).
+**Prerequisites:** R2 credentials must already be in `.env` (`CLOUDFLARE_R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_R2_ENDPOINT`).
 
 ```bash
-# 1. Create the private backup bucket in the Cloudflare dashboard first:
-#    https://dash.cloudflare.com → R2 Object Storage → Create bucket → "hopln-backups"
-#    Set visibility: Private
-
-# 2. Run the setup script (installs rclone, configures R2, registers cron, runs a test backup)
+# Run the setup script (installs rclone, configures R2, registers cron, runs a test backup)
 chmod +x scripts/backup-setup.sh
 ./scripts/backup-setup.sh
 ```
@@ -603,7 +599,7 @@ Registered automatically by `backup-setup.sh`. Verify with `crontab -l`.
 ### Browse backups
 
 ```bash
-rclone --config /opt/hopln/api/.rclone.conf ls r2:hopln-backups/
+rclone --config /opt/hopln/api/.rclone.conf ls r2:navigo-backups/
 ```
 
 Or use the restore script's list mode:
@@ -641,9 +637,9 @@ The config is written to `/opt/hopln/api/.rclone.conf` (mode `600`) by `backup-s
 [r2]
 type = s3
 provider = Cloudflare
-access_key_id = <R2_ACCESS_KEY_ID from .env>
-secret_access_key = <R2_SECRET_ACCESS_KEY from .env>
-endpoint = <R2_ENDPOINT from .env>
+access_key_id = <CLOUDFLARE_R2_ACCESS_KEY_ID from .env>
+secret_access_key = <CLOUDFLARE_R2_SECRET_ACCESS_KEY from .env>
+endpoint = <CLOUDFLARE_R2_ENDPOINT from .env>
 acl = private
 no_check_bucket = true
 ```

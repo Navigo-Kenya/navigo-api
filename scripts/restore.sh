@@ -15,7 +15,7 @@ set -euo pipefail
 APP_DIR="/opt/hopln/api"
 RCLONE_CONF="${APP_DIR}/.rclone.conf"
 COMPOSE="docker compose -f ${APP_DIR}/docker-compose.prod.yml"
-BACKUP_BUCKET="r2:hopln-backups"
+BACKUP_BUCKET="r2:navigo-backups"
 
 log()  { echo "[restore] $*"; }
 die()  { echo "[restore] ERROR: $*"; exit 1; }

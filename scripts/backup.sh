@@ -14,7 +14,7 @@ APP_DIR="/opt/hopln/api"
 OTP_GRAPH="/opt/hopln/otp-data/graph.obj"
 COMPOSE="docker compose -f ${APP_DIR}/docker-compose.prod.yml"
 RCLONE_CONF="${APP_DIR}/.rclone.conf"
-BACKUP_BUCKET="r2:hopln-backups"
+BACKUP_BUCKET="r2:navigo-backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 KEEP_DB_DAYS=30       # rolling 30-day window of daily DB dumps
@@ -44,9 +44,9 @@ if [ ! -f "${RCLONE_CONF}" ]; then
 [r2]
 type = s3
 provider = Cloudflare
-access_key_id = ${R2_ACCESS_KEY_ID}
-secret_access_key = ${R2_SECRET_ACCESS_KEY}
-endpoint = ${R2_ENDPOINT}
+access_key_id = ${CLOUDFLARE_R2_ACCESS_KEY_ID}
+secret_access_key = ${CLOUDFLARE_R2_SECRET_ACCESS_KEY}
+endpoint = ${CLOUDFLARE_R2_ENDPOINT}
 acl = private
 no_check_bucket = true
 EOF

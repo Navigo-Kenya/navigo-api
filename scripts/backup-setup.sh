@@ -16,7 +16,7 @@ CRON_JOB="0 2 * * * ${APP_DIR}/scripts/backup.sh >> ${LOG_FILE} 2>&1"
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
-echo "║   Hopln Backup Setup                     ║"
+echo "║   Navigo Backup Setup                    ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 
@@ -30,7 +30,7 @@ source "${ENV_FILE}"
 set +a
 
 # Verify required R2 variables are set
-for var in R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ENDPOINT DB_USERNAME DB_PASSWORD DB_DATABASE; do
+for var in CLOUDFLARE_R2_ACCESS_KEY_ID CLOUDFLARE_R2_SECRET_ACCESS_KEY CLOUDFLARE_R2_ENDPOINT DB_USERNAME DB_PASSWORD DB_DATABASE; do
   [ -n "${!var:-}" ] || { echo "ERROR: ${var} is not set in .env"; exit 1; }
 done
 echo "✓ .env loaded — R2 and DB credentials found"
@@ -53,25 +53,24 @@ cat > "${RCLONE_CONF}" <<EOF
 [r2]
 type = s3
 provider = Cloudflare
-access_key_id = ${R2_ACCESS_KEY_ID}
-secret_access_key = ${R2_SECRET_ACCESS_KEY}
-endpoint = ${R2_ENDPOINT}
+access_key_id = ${CLOUDFLARE_R2_ACCESS_KEY_ID}
+secret_access_key = ${CLOUDFLARE_R2_SECRET_ACCESS_KEY}
+endpoint = ${CLOUDFLARE_R2_ENDPOINT}
 acl = private
 no_check_bucket = true
 EOF
 chmod 600 "${RCLONE_CONF}"
 echo "✓ Config written to ${RCLONE_CONF} (mode 600)"
 
-# ── Step 4: Create backup bucket ──────────────────────────────────────────────
+# ── Step 4: Verify bucket is reachable ───────────────────────────────────────
 echo ""
-echo "── Creating backup bucket ───────────────────────────────────"
-if rclone --config "${RCLONE_CONF}" mkdir r2:hopln-backups 2>/dev/null; then
-  echo "✓ Bucket r2:hopln-backups ready"
+echo "── Verifying bucket access ──────────────────────────────────"
+if rclone --config "${RCLONE_CONF}" lsd r2:navigo-backups 2>/dev/null; then
+  echo "✓ navigo-backups bucket is accessible"
 else
-  echo "  NOTE: Could not auto-create the bucket (API token may only have object permissions)."
-  echo "  Create it manually in the Cloudflare R2 dashboard:"
-  echo "    https://dash.cloudflare.com → R2 Object Storage → Create bucket → hopln-backups"
-  echo "  Then re-run this script, or continue if already created."
+  echo "  WARNING: Could not access r2:navigo-backups."
+  echo "  Create it in the Cloudflare dashboard (private, no custom domain):"
+  echo "    https://dash.cloudflare.com → R2 Object Storage → Create bucket → navigo-backups"
 fi
 
 # ── Step 5: Create log file with correct owner ────────────────────────────────
@@ -112,5 +111,5 @@ echo "╚═══════════════════════�
 echo ""
 echo "  Schedule : daily at 02:00 server time"
 echo "  Logs     : tail -f ${LOG_FILE}"
-echo "  Browse   : rclone --config ${RCLONE_CONF} ls r2:hopln-backups/"
+echo "  Browse   : rclone --config ${RCLONE_CONF} ls r2:navigo-backups/"
 echo ""
