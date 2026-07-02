@@ -164,7 +164,7 @@ class GoogleLlmService
                     'role'  => 'user',
                     'parts' => [[
                         'functionResponse' => [
-                            'name'     => 'get_route',
+                            'name'     => $msg['name'] ?? 'get_route',
                             'response' => ['result' => $result],
                         ],
                     ]],

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Services\AI\GoogleLlmService;
 use App\Services\AI\GoogleTtsService;
+use App\Services\Kwame\KwameToolsService;
 use App\Models\SavedPlace;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -11,35 +12,54 @@ use Exception;
 
 class AiAssistantService
 {
-    const SESSION_TTL   = 1800;
+    const SESSION_TTL     = 1800;
     const ROUTE_CACHE_TTL = 600;
+    /** Max tool-call rounds per request (place search → route plan = 2). */
+    const MAX_TOOL_ROUNDS = 3;
 
     public function __construct(
         private GeocodingService     $geoService,
         private TransitEngineService $transitEngine,
         private GoogleLlmService     $llm,
         private GoogleTtsService     $tts,
+        private KwameToolsService    $kwameTools,
     ) {}
 
     /**
-     * Build the dynamic prompt based on personality style and language code.
+     * Build the dynamic prompt based on personality style, language code, and
+     * device context (calendar events).
      */
-    private function systemPrompt(?string $responseStyle = null, string $languageCode = 'en-US'): string
+    private function systemPrompt(?string $responseStyle = null, string $languageCode = 'en-US', ?array $context = null): string
     {
         $base = <<<'PROMPT'
-            You are Kwame, the voice assistant for Navigo, a public transit navigation platform.
-            You are a warm, friendly, and knowledgeable guide for Nairobi's public transport network.
+            You are Kwame, the smart travel companion inside Navigo, a public-transport navigation platform for Nairobi.
+            You are a warm, friendly, knowledgeable local guide — but you are more than a route planner: you help people
+            decide WHERE to go (places, food, errands) and HOW to get there (matatu/bus routes, stops).
             Speak casually and empathetically, like a helpful local friend.
 
-            CRITICAL INSTRUCTIONS:
-            - You have access to a tool called `get_route`. Use it whenever a destination is known or confirmed.
-            - If the user specifies a destination but does not mention where they are starting from, assume they are starting from their "current location".
-            - If the user asks a general question or doesn't mention travel intent, DO NOT call a tool. Reply conversationally.
-            - When explaining route results, use local Nairobi phrasing. Reference major stages (e.g., Commercial, Kencom, Khoja) and Matatu route numbers.
-            - Keep spoken responses brief, natural, and highly conversational (1 to 3 sentences maximum).
+            YOUR TOOLS:
+            - get_route: calculate transit journeys. Call ONLY when both origin and destination are known or confirmed.
+            - find_places: search real places (restaurants, malls, hospitals, banks, coffee shops...). Use it when the user
+              asks for suggestions or recommendations, or when their destination is vague ("somewhere to eat", "a good chemist").
+            - find_nearby_stops: list the transit stops closest to the user. Use for "where's the nearest stage/stop?".
+            - get_stop_routes: list which matatu routes serve a given stop/stage.
+            - search_transit_routes: look up a matatu route by number or name (e.g. "46", "Kikuyu route").
+            - suggest_replies: when the user's request is unclear or open-ended, call this with 2-4 short tappable reply
+              options (e.g. ["Coffee nearby", "Route to Westlands", "Nearest stage"]) BEFORE or INSTEAD of guessing.
 
-            ROUTING RULES:
-            1. CURRENT LOCATION: If the user says "here", "my location", or omits a start point, pass "current location" as the `from` parameter.
+            CRITICAL ROUTING RULES:
+            - If the user gives a destination without an origin, assume they start from "current location".
+            - If the user says "here", "my location", or similar, pass "current location".
+            - For general questions with no travel or place intent, reply conversationally without tools.
+
+            CRITICAL NARRATION RULES:
+            - When get_route returns journeys, DO NOT describe any single journey's legs, stops or transfers in detail.
+              The app already renders interactive route cards below your message. Instead say something brief like:
+              "To get to [destination], you can use the following journeys — the quickest takes about [N] minutes."
+            - When find_places returns results, do not read out addresses or coordinates; the app shows place cards.
+              Give a one-sentence intro (e.g. "Here are a few great coffee spots near you") and offer to plan a route.
+            - Keep spoken responses brief, natural, highly conversational (1 to 3 sentences maximum).
+            - Use local Nairobi phrasing. Reference stages (Commercial, Kencom, Khoja) and Matatu route numbers naturally.
         PROMPT;
 
         $suffix = match ($responseStyle) {
@@ -61,6 +81,26 @@ class AiAssistantService
             $finalPrompt .= "\n\n" . $suffix;
         }
         $finalPrompt .= "\n\n" . $langInstruction;
+
+        $finalPrompt .= "\n\nCurrent Nairobi time: " . now()->timezone('Africa/Nairobi')->format('l, H:i') . '.';
+
+        // ── Device context: upcoming calendar events ──
+        if (!empty($context['calendar_events']) && is_array($context['calendar_events'])) {
+            $lines = [];
+            foreach (array_slice($context['calendar_events'], 0, 5) as $ev) {
+                if (!is_array($ev)) continue;
+                $lines[] = sprintf(
+                    '- "%s" at %s%s',
+                    $ev['title'] ?? 'Untitled',
+                    $ev['start'] ?? 'unknown time',
+                    !empty($ev['location']) ? " (location: {$ev['location']})" : ''
+                );
+            }
+            if ($lines) {
+                $finalPrompt .= "\n\nUSER'S UPCOMING CALENDAR EVENTS (next 24 hours):\n" . implode("\n", $lines)
+                    . "\nIf the user mentions a meeting or event (\"get me to my meeting\"), use the matching event's location as the destination and factor in its start time. If the event has no location, ask for one.";
+            }
+        }
 
         return $finalPrompt;
     }
@@ -85,6 +125,79 @@ class AiAssistantService
                     ],
                 ],
             ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'find_places',
+                    'description' => 'Search for real-world places (restaurants, cafes, malls, hospitals, banks...) near the user or in a named area. Use when the user asks for suggestions or their destination is vague.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'query' => ['type' => 'string', 'description' => 'What to search, e.g. "coffee shop in Westlands" or "chemist near CBD".'],
+                        ],
+                        'required' => ['query'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'find_nearby_stops',
+                    'description' => 'List the transit stops/stages closest to the user\'s current location.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'radius_m' => ['type' => 'number', 'description' => 'Search radius in metres (default 1200).'],
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'get_stop_routes',
+                    'description' => 'List which matatu/bus routes serve a given stop or stage, by stop name.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'stop_name' => ['type' => 'string', 'description' => 'Name of the stop/stage, e.g. "Kencom".'],
+                        ],
+                        'required' => ['stop_name'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'search_transit_routes',
+                    'description' => 'Search matatu/bus routes by route number or name, e.g. "46" or "Kikuyu".',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'query' => ['type' => 'string', 'description' => 'Route number or partial name.'],
+                        ],
+                        'required' => ['query'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'suggest_replies',
+                    'description' => 'Offer the user 2-4 short tappable reply chips when their request is unclear or open-ended. The chips appear as buttons under your message.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'suggestions' => [
+                                'type'        => 'array',
+                                'items'       => ['type' => 'string'],
+                                'description' => '2-4 short reply options, each under 30 characters.',
+                            ],
+                        ],
+                        'required' => ['suggestions'],
+                    ],
+                ],
+            ],
         ];
     }
 
@@ -96,6 +209,7 @@ class AiAssistantService
         ?float  $userLng       = null,
         array   $aliases       = [],
         ?array  $voiceSettings = null,
+        ?array  $context       = null,
     ): ?array {
         if (function_exists('set_time_limit')) {
             @set_time_limit(60);
@@ -105,8 +219,11 @@ class AiAssistantService
             throw new Exception('GCP_PROJECT_ID is not set.');
         }
 
-        // ── Text cache (skip audio turns) ──────────────────────────────────────
-        if ($text && empty($audioFile['base64'])) {
+        $hasCalendar = !empty($context['calendar_events']);
+
+        // ── Text cache (skip audio turns and calendar-dependent turns) ─────────
+        $textCacheKey = null;
+        if ($text && empty($audioFile['base64']) && !$hasCalendar) {
             $textCacheKey = 'navigo_text_cache:' . md5(strtolower(trim($text)));
             if (Cache::has($textCacheKey)) return Cache::get($textCacheKey);
         }
@@ -119,123 +236,193 @@ class AiAssistantService
 
         $history[] = ['role' => 'user', 'content' => $text ?? '[Voice message]'];
 
-        // Extract settings payload variables
         $responseStyle = $voiceSettings['response_style'] ?? null;
         $languageCode  = $voiceSettings['language_code'] ?? 'en-US';
+        $systemPrompt  = $this->systemPrompt($responseStyle, $languageCode, $context);
 
-        // ── Step 1: LLM turn 1 — Gemini transcribes + detects intent ──────────
-        try {
-            $firstResponse = $this->llm->chat(
-                $history,
-                $this->systemPrompt($responseStyle, $languageCode),
-                $this->tools(),
-                true,
-                $hasAudio ? $audioFile : null,
-            );
-        } catch (\RuntimeException $e) {
-            $msg = match ($e->getMessage()) {
-                'VERTEX_QUOTA_EXCEEDED' => "I'm getting a lot of requests right now — please try again in a moment!",
-                'VERTEX_TIMEOUT'        => "That took too long on my end. Please try again!",
-                default                 => null,
-            };
-            if ($msg !== null) {
-                $this->saveLightweightHistory($sessionId, $history, $msg);
-                return ['spoken_response' => $msg, 'tts_audio' => null, 'holding_phrase' => null, 'routes' => []];
-            }
-            throw $e;
-        }
+        // Accumulated across tool rounds
+        $holdingPhrase = null;
+        $routes        = [];
+        $places        = [];
+        $suggestions   = [];
+        $geoCacheKey   = null;
+        $finalText     = '';
 
-        if (!$firstResponse) return null;
+        // ── Tool loop: LLM may chain tools (e.g. find_places → get_route) ─────
+        for ($round = 0; $round <= self::MAX_TOOL_ROUNDS; $round++) {
+            // Force a plain narration turn once the round budget is spent.
+            $allowTools = $round < self::MAX_TOOL_ROUNDS;
 
-        $holdingPhrase  = null;
-        $routes         = [];
-        $actionRequired = null;
-        $finalText      = '';
-
-        if ($firstResponse['functionCall'] && $firstResponse['functionCall']['name'] === 'get_route') {
-            $args          = $firstResponse['functionCall']['args'];
-            $holdingPhrase = $args['holding_phrase'] ?? 'Checking routes for you...';
-
-            $resolvedCoords = $this->extractCoordinates($args, $userLat, $userLng, $aliases);
-
-            // ── Unresolved location → return action UI payload ─────────────────
-            if (isset($resolvedCoords['actionRequired'])) {
-                $actionRequired = $resolvedCoords['actionRequired'];
-                
-                // Locally handle clarification prompt messages matching the user's active language choice
-                $transcript = match ($languageCode) {
-                    'sw-KE' => $actionRequired['isAuthenticated']
-                        ? "Sikuweza kupata '{$actionRequired['unresolvedName']}'. Je, ungependa kuchagua moja ya maeneo uliyohifadhi?"
-                        : "Sikuweza kupata '{$actionRequired['unresolvedName']}'. Tafadhali ingia katika akaunti yako ili kupata maeneo yako yaliyohifadhiwa.",
-                    'fr-FR' => $actionRequired['isAuthenticated']
-                        ? "Je n'ai pas pu situer '{$actionRequired['unresolvedName']}'. Souhaitez-vous sélectionner l'un de vos lieux enregistrés ?"
-                        : "Je n'ai pas pu situer '{$actionRequired['unresolvedName']}'. Veuillez vous connecter pour accéder à vos lieux enregistrés.",
-                    default => $actionRequired['isAuthenticated']
-                        ? "I couldn't locate '{$actionRequired['unresolvedName']}'. Would you like to select one of your saved places instead?"
-                        : "I couldn't locate '{$actionRequired['unresolvedName']}'. Please sign in to access your custom saved places.",
-                };
-
-                $this->saveLightweightHistory($sessionId, $history, $transcript);
-                return [
-                    'spoken_response' => $transcript,
-                    'tts_audio'       => null,
-                    'holding_phrase'  => null,
-                    'routes'          => [],
-                    'actionRequired'  => $actionRequired,
-                ];
-            }
-
-            // ── Geocoding error ────────────────────────────────────────────────
-            if (isset($resolvedCoords['error'])) {
-                $toolContent = json_encode(['success' => false, 'message' => $resolvedCoords['error']]);
-            } else {
-                // ── Geo-route cache ────────────────────────────────────────────
-                $geoCacheKey = sprintf(
-                    'navigo_geo_route:%s:%s',
-                    round($resolvedCoords['from']['lat'], 3) . ',' . round($resolvedCoords['from']['lng'], 3),
-                    round($resolvedCoords['to']['lat'],   3) . ',' . round($resolvedCoords['to']['lng'],   3)
+            try {
+                $response = $this->llm->chat(
+                    $history,
+                    $systemPrompt,
+                    $allowTools ? $this->tools() : [],
+                    $allowTools,
+                    ($round === 0 && $hasAudio) ? $audioFile : null,
                 );
-
-                if (Cache::has($geoCacheKey)) {
-                    $cached = Cache::get($geoCacheKey);
-                    $this->saveLightweightHistory($sessionId, $history, $cached['spoken_response']);
-                    return [
-                        'spoken_response' => $cached['spoken_response'],
-                        'tts_audio'       => $cached['tts_audio'],
-                        'holding_phrase'  => $holdingPhrase,
-                        'routes'          => $cached['routes'] ?? [],
-                    ];
+            } catch (\RuntimeException $e) {
+                $msg = match ($e->getMessage()) {
+                    'VERTEX_QUOTA_EXCEEDED' => "I'm getting a lot of requests right now — please try again in a moment!",
+                    'VERTEX_TIMEOUT'        => "That took too long on my end. Please try again!",
+                    default                 => null,
+                };
+                if ($msg !== null) {
+                    $this->saveLightweightHistory($sessionId, $history, $msg);
+                    return $this->buildOutput($msg, null, null, [], [], []);
                 }
-
-                $routes      = $this->executeTransitPlan($resolvedCoords['from'], $resolvedCoords['to'], $args['walkReluctance'] ?? 13.5);
-                $toolContent = !empty($routes)
-                    ? json_encode(['success' => true, 'routes_found' => count($routes), 'options' => $routes])
-                    : json_encode(['success' => false, 'message' => 'No transit routes found right now.']);
+                throw $e;
             }
 
-            // ── Append tool turns to in-memory history for LLM turn 2 ─────────
+            if (!$response) return null;
+
+            if (empty($response['functionCall'])) {
+                $finalText = $response['text'] ?? '';
+                break;
+            }
+
+            $toolName = $response['functionCall']['name'];
+            $args     = $response['functionCall']['args'] ?? [];
+
+            // ── Execute the requested tool ─────────────────────────────────────
+            switch ($toolName) {
+                case 'get_route':
+                    $holdingPhrase  = $args['holding_phrase'] ?? 'Checking routes for you...';
+                    $resolvedCoords = $this->extractCoordinates($args, $userLat, $userLng, $aliases);
+
+                    // Unresolved location → return action UI payload immediately
+                    if (isset($resolvedCoords['actionRequired'])) {
+                        $actionRequired = $resolvedCoords['actionRequired'];
+                        $transcript = match ($languageCode) {
+                            'sw-KE' => $actionRequired['isAuthenticated']
+                                ? "Sikuweza kupata '{$actionRequired['unresolvedName']}'. Je, ungependa kuchagua moja ya maeneo uliyohifadhi?"
+                                : "Sikuweza kupata '{$actionRequired['unresolvedName']}'. Tafadhali ingia katika akaunti yako ili kupata maeneo yako yaliyohifadhiwa.",
+                            'fr-FR' => $actionRequired['isAuthenticated']
+                                ? "Je n'ai pas pu situer '{$actionRequired['unresolvedName']}'. Souhaitez-vous sélectionner l'un de vos lieux enregistrés ?"
+                                : "Je n'ai pas pu situer '{$actionRequired['unresolvedName']}'. Veuillez vous connecter pour accéder à vos lieux enregistrés.",
+                            default => $actionRequired['isAuthenticated']
+                                ? "I couldn't locate '{$actionRequired['unresolvedName']}'. Would you like to select one of your saved places instead?"
+                                : "I couldn't locate '{$actionRequired['unresolvedName']}'. Please sign in to access your custom saved places.",
+                        };
+
+                        $this->saveLightweightHistory($sessionId, $history, $transcript);
+                        $out = $this->buildOutput($transcript, null, null, [], $places, $suggestions);
+                        $out['actionRequired'] = $actionRequired;
+                        return $out;
+                    }
+
+                    if (isset($resolvedCoords['error'])) {
+                        $toolContent = json_encode(['success' => false, 'message' => $resolvedCoords['error']]);
+                        break;
+                    }
+
+                    // ── Geo-route cache ────────────────────────────────────────
+                    $geoCacheKey = sprintf(
+                        'navigo_geo_route:%s:%s',
+                        round($resolvedCoords['from']['lat'], 3) . ',' . round($resolvedCoords['from']['lng'], 3),
+                        round($resolvedCoords['to']['lat'],   3) . ',' . round($resolvedCoords['to']['lng'],   3)
+                    );
+
+                    if (Cache::has($geoCacheKey)) {
+                        $cached = Cache::get($geoCacheKey);
+                        $this->saveLightweightHistory($sessionId, $history, $cached['spoken_response']);
+                        return $this->buildOutput(
+                            $cached['spoken_response'],
+                            $cached['tts_audio'],
+                            $holdingPhrase,
+                            $cached['routes'] ?? [],
+                            $places,
+                            $suggestions,
+                        );
+                    }
+
+                    $routes = $this->executeTransitPlan($resolvedCoords['from'], $resolvedCoords['to'], $args['walkReluctance'] ?? 13.5);
+
+                    // Compact per-option summaries for the LLM — the full route
+                    // objects go straight to the app; narration only needs the gist.
+                    $toolContent = !empty($routes)
+                        ? json_encode([
+                            'success'      => true,
+                            'routes_found' => count($routes),
+                            'destination'  => $resolvedCoords['to']['name'] ?? $args['to'],
+                            'options'      => $this->summarizeRoutesForLlm($routes),
+                            'note'         => 'The app displays full route cards. Introduce the options collectively; do not detail any single journey.',
+                        ])
+                        : json_encode(['success' => false, 'message' => 'No transit routes found right now.']);
+                    break;
+
+                case 'find_places':
+                    $found  = $this->kwameTools->findPlaces((string) ($args['query'] ?? ''), $userLat, $userLng);
+                    $places = $found;
+                    $toolContent = json_encode([
+                        'success' => !empty($found),
+                        'places_found' => count($found),
+                        'places'  => array_map(fn ($p) => [
+                            'name'     => $p['name'],
+                            'category' => $p['category'],
+                            'rating'   => $p['rating'],
+                            'open_now' => $p['open_now'],
+                        ], $found),
+                        'note' => 'The app displays place cards with addresses and a Directions button. Keep your intro to one sentence.',
+                    ]);
+                    break;
+
+                case 'find_nearby_stops':
+                    $stops = $this->kwameTools->findNearbyStops($userLat, $userLng, (int) ($args['radius_m'] ?? 1200));
+                    // Surface stops as place cards too, so the user can tap Directions.
+                    $places = array_map(fn ($s) => [
+                        'name'     => $s['name'],
+                        'address'  => round($s['distance_m']) . ' m away',
+                        'lat'      => $s['lat'],
+                        'lng'      => $s['lng'],
+                        'rating'   => null,
+                        'ratings_count' => null,
+                        'category' => 'Transit stop',
+                        'open_now' => null,
+                    ], $stops);
+                    $toolContent = json_encode(['success' => !empty($stops), 'stops' => $stops]);
+                    break;
+
+                case 'get_stop_routes':
+                    $result      = $this->kwameTools->getStopRoutes((string) ($args['stop_name'] ?? ''));
+                    $toolContent = json_encode(['success' => $result['stop'] !== null] + $result);
+                    break;
+
+                case 'search_transit_routes':
+                    $found       = $this->kwameTools->searchTransitRoutes((string) ($args['query'] ?? ''));
+                    $toolContent = json_encode(['success' => !empty($found), 'routes' => $found]);
+                    break;
+
+                case 'suggest_replies':
+                    $suggestions = collect($args['suggestions'] ?? [])
+                        ->filter(fn ($s) => is_string($s) && trim($s) !== '')
+                        ->map(fn ($s) => mb_substr(trim($s), 0, 40))
+                        ->take(4)
+                        ->values()
+                        ->all();
+                    $toolContent = json_encode(['success' => true, 'note' => 'Chips are now shown to the user. Write one short sentence inviting them to pick one (or answer freely).']);
+                    break;
+
+                default:
+                    $toolContent = json_encode(['success' => false, 'message' => "Unknown tool: {$toolName}"]);
+            }
+
+            // ── Append tool turns for the next LLM round ───────────────────────
             $history[] = [
                 'role'       => 'assistant',
                 'tool_calls' => [[
                     'function' => [
-                        'name'      => 'get_route',
+                        'name'      => $toolName,
                         'arguments' => json_encode($args),
                     ],
                 ]],
             ];
             $history[] = [
                 'role'         => 'tool',
-                'tool_call_id' => 'call_1',
+                'name'         => $toolName,
+                'tool_call_id' => 'call_' . ($round + 1),
                 'content'      => $toolContent,
             ];
-
-            // ── Step 2b: LLM turn 2 — narrate route results (no tools) ────────
-            $secondResponse = $this->llm->chat($history, $this->systemPrompt($responseStyle, $languageCode), [], false);
-            $finalText      = $secondResponse['text'] ?? '';
-
-        } else {
-            // No tool call — plain conversational reply
-            $finalText = $firstResponse['text'] ?? '';
         }
 
         if (empty(trim($finalText))) {
@@ -246,7 +433,7 @@ class AiAssistantService
             };
         }
 
-        // ── Step 3: TTS — text → audio ─────────────────────────────────────────
+        // ── TTS — text → audio ─────────────────────────────────────────────────
         $audioData = $this->tts->synthesize(
             $finalText,
             (float) ($voiceSettings['speaking_rate'] ?? 1.05),
@@ -257,24 +444,58 @@ class AiAssistantService
 
         $this->saveLightweightHistory($sessionId, $history, $finalText);
 
-        $output = [
-            'spoken_response' => $finalText,
-            'tts_audio'       => $audioData,
-            'holding_phrase'  => $holdingPhrase,
-            'routes'          => $routes,
-        ];
+        $output = $this->buildOutput($finalText, $audioData, $holdingPhrase, $routes, $places, $suggestions);
 
-        if ($text && !$hasAudio && empty($routes)) {
+        if ($textCacheKey && empty($routes) && empty($places) && empty($suggestions)) {
             Cache::put($textCacheKey, $output, self::ROUTE_CACHE_TTL);
         }
-        if (!empty($routes) && isset($geoCacheKey)) {
+        if (!empty($routes) && $geoCacheKey) {
             Cache::put($geoCacheKey, $output, self::ROUTE_CACHE_TTL);
         }
 
         return $output;
     }
 
-    // ... (Keep extractCoordinates, resolveCoordinate, handleResolutionFailure, isContextualLocation, executeTransitPlan, and saveLightweightHistory exactly as they were) ...
+    /** Uniform response payload shape across every return path. */
+    private function buildOutput(
+        string  $spokenResponse,
+        ?string $ttsAudio,
+        ?string $holdingPhrase,
+        array   $routes,
+        array   $places,
+        array   $suggestions,
+    ): array {
+        return [
+            'spoken_response' => $spokenResponse,
+            'tts_audio'       => $ttsAudio,
+            'holding_phrase'  => $holdingPhrase,
+            'routes'          => $routes,
+            'places'          => $places,
+            'suggestions'     => $suggestions,
+        ];
+    }
+
+    /** Compact one-line-per-option digest so the LLM never sees full leg JSON. */
+    private function summarizeRoutesForLlm(array $routes): array
+    {
+        return collect($routes)->take(4)->values()->map(function ($r, $i) {
+            $legs  = $r['legs'] ?? $r['segments'] ?? [];
+            $chain = collect($legs)->map(function ($l) {
+                $mode = strtoupper($l['mode'] ?? '');
+                return $mode === 'WALK'
+                    ? 'Walk'
+                    : trim('Matatu ' . ($l['route_name'] ?? $l['routeNumber'] ?? $l['route_short_name'] ?? ''));
+            })->implode(' → ');
+
+            return [
+                'option'       => $i + 1,
+                'summary'      => $r['summary'] ?? '',
+                'duration_min' => (int) round(($r['total_duration'] ?? 0) / 60),
+                'legs'         => $chain,
+            ];
+        })->all();
+    }
+
     private function extractCoordinates(array $args, ?float $userLat, ?float $userLng, array $aliases): array
     {
         $fromNorm = strtolower(trim($args['from'] ?? 'current location'));

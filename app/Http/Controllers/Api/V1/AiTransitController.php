@@ -35,6 +35,11 @@ class AiTransitController extends Controller
             'voice_settings.pitch'           => ['nullable', 'numeric', 'between:-20.0,20.0'],
             'voice_settings.language_code'   => ['nullable', 'string', 'max:20'],
             'voice_settings.response_style'  => ['nullable', 'string', 'in:casual,professional,brief'],
+            'context'                        => ['nullable', 'array'],
+            'context.calendar_events'        => ['nullable', 'array', 'max:10'],
+            'context.calendar_events.*.title'    => ['nullable', 'string', 'max:120'],
+            'context.calendar_events.*.start'    => ['nullable', 'string', 'max:60'],
+            'context.calendar_events.*.location' => ['nullable', 'string', 'max:200'],
         ]);
 
         $sessionId = $validated['session_id'] ?? 'default';
@@ -49,6 +54,7 @@ class AiTransitController extends Controller
                 userLng:       $validated['lng'] ?? null,
                 aliases:       $validated['aliases'] ?? [],
                 voiceSettings: $validated['voice_settings'] ?? null,
+                context:       $validated['context'] ?? null,
             );
 
             if (!$result) {
