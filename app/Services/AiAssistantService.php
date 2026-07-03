@@ -44,6 +44,8 @@ class AiAssistantService
             - find_nearby_stops: list the transit stops closest to the user. Use for "where's the nearest stage/stop?".
             - get_stop_routes: list which matatu routes serve a given stop/stage.
             - search_transit_routes: look up a matatu route by number or name (e.g. "46", "Kikuyu route").
+            - get_weather: current weather at the user's location or a named place. Use when asked about weather,
+              or proactively mention rain when it affects a trip you just planned (e.g. suggest carrying an umbrella).
             - suggest_replies: when the user's request is unclear or open-ended, call this with 2-4 short tappable reply
               options (e.g. ["Coffee nearby", "Route to Westlands", "Nearest stage"]) BEFORE or INSTEAD of guessing.
 
@@ -177,6 +179,19 @@ class AiAssistantService
                             'query' => ['type' => 'string', 'description' => 'Route number or partial name.'],
                         ],
                         'required' => ['query'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'get_weather',
+                    'description' => 'Get current weather conditions. Defaults to the user\'s location; pass a place name to check somewhere else.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'location' => ['type' => 'string', 'description' => 'Optional place name (e.g. "Westlands"). Omit for the user\'s current location.'],
+                        ],
                     ],
                 ],
             ],
@@ -391,6 +406,17 @@ class AiAssistantService
                 case 'search_transit_routes':
                     $found       = $this->kwameTools->searchTransitRoutes((string) ($args['query'] ?? ''));
                     $toolContent = json_encode(['success' => !empty($found), 'routes' => $found]);
+                    break;
+
+                case 'get_weather':
+                    $wLat = $userLat;
+                    $wLng = $userLng;
+                    if (!empty($args['location'])) {
+                        $coords = $this->geoService->getCoordinates((string) $args['location'], $userLat, $userLng);
+                        if ($coords) { $wLat = $coords['lat']; $wLng = $coords['lng']; }
+                    }
+                    $weather     = $this->kwameTools->getWeather($wLat, $wLng);
+                    $toolContent = json_encode(['success' => !isset($weather['error'])] + $weather);
                     break;
 
                 case 'suggest_replies':

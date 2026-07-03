@@ -47,7 +47,7 @@ class GeocodingService
         // ── 2. FALLBACK TO GOOGLE MAPS GEOCODING ──
         Log::info("Not in DB, falling back to Google Maps for: {$query}");
 
-        $apiKey    = env('GOOGLE_MAPS_API_KEY');
+        $apiKey    = config('services.google.maps_key');
         $mapsQuery = $query;
         if (stripos($mapsQuery, 'Nairobi') === false) {
             $mapsQuery .= ', Nairobi';
