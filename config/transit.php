@@ -10,6 +10,9 @@ return [
     'otp' => [
         'base_url'  => env('OTP_BASE_URL', 'http://127.0.0.1:8080/otp/routers/default'),
         'cache_ttl' => (int) env('OTP_CACHE_TTL', 300),
+        // Itinerary alternatives per plan request. More options power the
+        // Fastest/Cheapest/Least-walking/Fewest-transfers chips in the app.
+        'num_itineraries' => (int) env('OTP_NUM_ITINERARIES', 5),
     ],
 
     /*

@@ -4,18 +4,22 @@ namespace App\Http\Controllers\Console;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contribution;
+use App\Services\ContributionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ConsoleContributionController extends Controller
 {
+    public function __construct(private ContributionService $service) {}
+
     public function index(Request $request): JsonResponse
     {
         $q = Contribution::with('user:id,name,avatar,points')
             ->withCount('votes');
 
         if ($status = $request->input('status')) {
-            $q->where('status', $status);
+            // Console UI historically filters by "declined"; DB canon is "rejected".
+            $q->where('status', $status === 'declined' ? 'rejected' : $status);
         }
 
         if ($type = $request->input('type')) {
@@ -53,16 +57,10 @@ class ConsoleContributionController extends Controller
     {
         $contribution = Contribution::where('status', 'pending')->findOrFail($id);
 
-        $contribution->update([
-            'status'      => 'approved',
-            'reviewed_at' => now(),
-            'reviewed_by' => auth()->id(),
-        ]);
-
-        // Award points to contributor
-        if ($contribution->user_id) {
-            $contribution->user()->increment('points', 10);
-        }
+        // ContributionService owns the approval side-effects: correct
+        // POINTS_MAP award (not a flat +10), first-photo bonus, badge checks,
+        // landmark write-through, and the "points earned" push.
+        $this->service->approve($contribution, auth()->id());
 
         return response()->json(['message' => 'Contribution approved.']);
     }
@@ -74,7 +72,7 @@ class ConsoleContributionController extends Controller
         $contribution = Contribution::where('status', 'pending')->findOrFail($id);
 
         $contribution->update([
-            'status'         => 'declined',
+            'status'         => 'rejected', // canonical status; console shows "Declined"
             'decline_reason' => $data['reason'],
             'reviewed_at'    => now(),
             'reviewed_by'    => auth()->id(),
@@ -116,14 +114,13 @@ class ConsoleContributionController extends Controller
     {
         $data = $request->validate(['ids' => 'required|array', 'ids.*' => 'integer']);
 
-        $count = Contribution::whereIn('id', $data['ids'])->where('status', 'pending')
-            ->update([
-                'status'      => 'approved',
-                'reviewed_at' => now(),
-                'reviewed_by' => auth()->id(),
-            ]);
+        // Per-item service approval so points/badges/write-throughs all apply.
+        $contributions = Contribution::whereIn('id', $data['ids'])->where('status', 'pending')->get();
+        foreach ($contributions as $contribution) {
+            $this->service->approve($contribution, auth()->id());
+        }
 
-        return response()->json(['approved' => $count]);
+        return response()->json(['approved' => $contributions->count()]);
     }
 
     public function bulkDecline(Request $request): JsonResponse
@@ -136,7 +133,7 @@ class ConsoleContributionController extends Controller
 
         $count = Contribution::whereIn('id', $data['ids'])->where('status', 'pending')
             ->update([
-                'status'         => 'declined',
+                'status'         => 'rejected', // canonical status; console shows "Declined"
                 'decline_reason' => $data['reason'],
                 'reviewed_at'    => now(),
                 'reviewed_by'    => auth()->id(),

@@ -40,6 +40,16 @@ class AiTransitController extends Controller
             'context.calendar_events.*.title'    => ['nullable', 'string', 'max:120'],
             'context.calendar_events.*.start'    => ['nullable', 'string', 'max:60'],
             'context.calendar_events.*.location' => ['nullable', 'string', 'max:200'],
+            'context.nav'                        => ['nullable', 'array'],
+            'context.nav.trip_status'            => ['nullable', 'string', 'max:20'],
+            'context.nav.destination'            => ['nullable', 'string', 'max:150'],
+            'context.nav.next_instruction'       => ['nullable', 'string', 'max:200'],
+            'context.nav.segment_mode'           => ['nullable', 'string', 'max:20'],
+            'context.nav.current_line'           => ['nullable', 'string', 'max:30'],
+            'context.nav.stops_remaining'        => ['nullable', 'integer', 'min:0', 'max:200'],
+            'context.nav.current_stop'           => ['nullable', 'string', 'max:150'],
+            'context.nav.remaining_m'            => ['nullable', 'numeric', 'min:0'],
+            'context.nav.eta'                    => ['nullable', 'string', 'max:30'],
         ]);
 
         $sessionId = $validated['session_id'] ?? 'default';

@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use App\Jobs\SendPushNotificationJob;
 use App\Models\Badge;
 use App\Models\Contribution;
+use App\Models\Stop;
 use App\Models\TransitReport;
 use App\Models\User;
 use App\Models\UserBadge;
@@ -21,6 +23,9 @@ class ContributionService
     ];
 
     private const AUTO_APPROVED = ['delay_report', 'stop_review'];
+
+    /** Daily-streak bonus cap (extra points per submission). */
+    private const STREAK_BONUS_CAP = 7;
 
     public function create(User $user, array $data): array
     {
@@ -40,9 +45,12 @@ class ContributionService
             'expires_at'  => $expiresAt,
         ]);
 
+        $streakDays = $this->bumpStreak($user);
+
         $pointsAwarded = 0;
         if ($isAuto) {
-            $pointsAwarded = $this->awardPoints($user, $contribution, self::POINTS_MAP[$type]);
+            $streakBonus   = min(max($streakDays - 1, 0), self::STREAK_BONUS_CAP);
+            $pointsAwarded = $this->awardPoints($user, $contribution, self::POINTS_MAP[$type] + $streakBonus);
         }
 
         $newBadges = $this->checkAndAwardBadges($user->fresh());
@@ -52,12 +60,41 @@ class ContributionService
             'points_awarded' => $pointsAwarded,
             'new_badges'    => $newBadges,
             'new_level'     => null,
+            'streak_days'   => $streakDays,
         ];
     }
 
-    public function approve(Contribution $contribution): void
+    /**
+     * Consecutive-day contribution streak. Same-day submissions keep the
+     * current streak; a gap of more than one day resets it.
+     */
+    public function bumpStreak(User $user): int
     {
-        $contribution->update(['status' => 'approved', 'reviewed_at' => now()]);
+        $today = now()->timezone('Africa/Nairobi')->toDateString();
+        $last  = $user->last_contribution_at?->toDateString();
+
+        if ($last === $today) {
+            return (int) $user->streak_days;
+        }
+
+        $yesterday = now()->timezone('Africa/Nairobi')->subDay()->toDateString();
+        $newStreak = $last === $yesterday ? ((int) $user->streak_days) + 1 : 1;
+
+        $user->forceFill([
+            'streak_days'          => $newStreak,
+            'last_contribution_at' => $today,
+        ])->save();
+
+        return $newStreak;
+    }
+
+    public function approve(Contribution $contribution, ?int $reviewerId = null): void
+    {
+        $contribution->update([
+            'status'      => 'approved',
+            'reviewed_at' => now(),
+            'reviewed_by' => $reviewerId,
+        ]);
 
         $user  = $contribution->user;
         $points = self::POINTS_MAP[$contribution->type] ?? 0;
@@ -72,8 +109,38 @@ class ContributionService
             if ($isFirst) $points += 20;
         }
 
-        $this->awardPoints($user, $contribution, $points);
-        $this->checkAndAwardBadges($user->fresh());
+        $this->applyApprovedEdit($contribution);
+
+        if ($user) {
+            $this->awardPoints($user, $contribution, $points);
+            $this->checkAndAwardBadges($user->fresh());
+
+            SendPushNotificationJob::dispatch(
+                $user->id,
+                'points_earned',
+                'Contribution approved 🎉',
+                "\"{$contribution->title}\" was approved — +{$points} Safiri Points",
+                ['screen' => '/(tabs)/contribution'],
+            )->onQueue('default');
+        }
+    }
+
+    /**
+     * Write approved stop edits through to the stops table. Currently applies
+     * community landmarks ("in front of Hilton") — the field that powers
+     * landmark-based boarding instructions.
+     */
+    private function applyApprovedEdit(Contribution $contribution): void
+    {
+        if ($contribution->type !== 'stop_edit' || !$contribution->stop_id) return;
+
+        $field    = $contribution->data['field'] ?? null;
+        $proposed = trim((string) ($contribution->data['proposed_value'] ?? ''));
+        if ($proposed === '') return;
+
+        if ($field === 'landmark') {
+            Stop::where('id', $contribution->stop_id)->update(['landmark' => mb_substr($proposed, 0, 160)]);
+        }
     }
 
     public function awardPoints(User $user, Contribution $contribution, int $points): int

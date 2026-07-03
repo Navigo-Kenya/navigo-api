@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\PhoneController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\JourneyFeedbackController;
 use App\Http\Controllers\Api\V1\KwameSttController;
+use App\Http\Controllers\Api\V1\KwameMemoryController;
 use App\Http\Controllers\Api\V1\RouteController;
 use App\Http\Controllers\Api\V1\SavedJourneysController;
 use App\Http\Controllers\Api\V1\SavedPlacesController;
@@ -101,6 +102,11 @@ Route::prefix('v1')->group(function () {
 
         Route::get('community/stats',        [CommunityController::class, 'stats']);
         Route::get('badges',                 [CommunityController::class, 'badges']);
+
+        // ── Kwame persistent memory (transparency) ─────────────────
+        Route::get('kwame-memory',           [KwameMemoryController::class, 'index']);
+        Route::delete('kwame-memory',        [KwameMemoryController::class, 'destroyAll']);
+        Route::delete('kwame-memory/{id}',   [KwameMemoryController::class, 'destroy']);
     });
 
     Route::middleware('auth:sanctum')->group(function () {

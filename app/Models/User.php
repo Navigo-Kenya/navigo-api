@@ -40,11 +40,12 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'email_verified_at'  => 'datetime',
-            'phone_verified_at'  => 'datetime',
-            'banned_at'          => 'datetime',
-            'password'           => 'hashed',
-            'settings'           => 'array',
+            'email_verified_at'    => 'datetime',
+            'phone_verified_at'    => 'datetime',
+            'banned_at'            => 'datetime',
+            'password'             => 'hashed',
+            'settings'             => 'array',
+            'last_contribution_at' => 'date',
         ];
     }
 

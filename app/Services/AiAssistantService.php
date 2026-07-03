@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Services\AI\GoogleLlmService;
 use App\Services\AI\GoogleTtsService;
 use App\Services\Kwame\KwameToolsService;
+use App\Services\Kwame\KwameMemoryService;
 use App\Models\SavedPlace;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -23,6 +24,7 @@ class AiAssistantService
         private GoogleLlmService     $llm,
         private GoogleTtsService     $tts,
         private KwameToolsService    $kwameTools,
+        private KwameMemoryService   $memory,
     ) {}
 
     /**
@@ -46,6 +48,9 @@ class AiAssistantService
             - search_transit_routes: look up a matatu route by number or name (e.g. "46", "Kikuyu route").
             - get_weather: current weather at the user's location or a named place. Use when asked about weather,
               or proactively mention rain when it affects a trip you just planned (e.g. suggest carrying an umbrella).
+            - remember_preference: when the user states a DURABLE preference or fact about themselves
+              ("I hate walking far", "avoid CBD at night", "I always take the 46"), call this to remember it for
+              future conversations. Never store one-off trip details or sensitive personal data.
             - suggest_replies: when the user's request is unclear or open-ended, call this with 2-4 short tappable reply
               options (e.g. ["Coffee nearby", "Route to Westlands", "Nearest stage"]) BEFORE or INSTEAD of guessing.
 
@@ -85,6 +90,25 @@ class AiAssistantService
         $finalPrompt .= "\n\n" . $langInstruction;
 
         $finalPrompt .= "\n\nCurrent Nairobi time: " . now()->timezone('Africa/Nairobi')->format('l, H:i') . '.';
+
+        // ── Device context: live trip (in-trip copilot) ──
+        if (!empty($context['nav']) && is_array($context['nav'])) {
+            $nav = $context['nav'];
+            $lines = array_filter([
+                !empty($nav['trip_status'])      ? "- Status: {$nav['trip_status']}" : null,
+                !empty($nav['destination'])      ? "- Destination: {$nav['destination']}" : null,
+                !empty($nav['segment_mode'])     ? "- Current leg: {$nav['segment_mode']}" . (!empty($nav['current_line']) ? " (Line {$nav['current_line']})" : '') : null,
+                isset($nav['stops_remaining']) && $nav['stops_remaining'] !== null ? "- Stops remaining on this leg: {$nav['stops_remaining']}" : null,
+                !empty($nav['current_stop'])     ? "- Last stop passed: {$nav['current_stop']}" : null,
+                !empty($nav['next_instruction']) ? "- Next instruction: {$nav['next_instruction']}" : null,
+                isset($nav['remaining_m']) && $nav['remaining_m'] !== null ? '- Distance remaining: ' . round(((float) $nav['remaining_m']) / 100) / 10 . ' km' : null,
+                !empty($nav['eta'])              ? "- ETA: {$nav['eta']}" : null,
+            ]);
+            if ($lines) {
+                $finalPrompt .= "\n\nLIVE TRIP CONTEXT (the user is navigating RIGHT NOW):\n" . implode("\n", $lines)
+                    . "\nAnswer questions about the current trip (stops left, arrival time, where to alight, whether they'll make an appointment) DIRECTLY from this context — do not call tools for them. Keep it to one reassuring sentence.";
+            }
+        }
 
         // ── Device context: upcoming calendar events ──
         if (!empty($context['calendar_events']) && is_array($context['calendar_events'])) {
@@ -198,6 +222,20 @@ class AiAssistantService
             [
                 'type'     => 'function',
                 'function' => [
+                    'name'        => 'remember_preference',
+                    'description' => 'Store a durable user preference or fact for future conversations (e.g. "prefers fewer transfers", "avoids CBD after dark"). Only for lasting preferences — never one-off trip details.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'content' => ['type' => 'string', 'description' => 'The preference, phrased in third person, under 150 characters.'],
+                        ],
+                        'required' => ['content'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
                     'name'        => 'suggest_replies',
                     'description' => 'Offer the user 2-4 short tappable reply chips when their request is unclear or open-ended. The chips appear as buttons under your message.',
                     'parameters'  => [
@@ -234,11 +272,13 @@ class AiAssistantService
             throw new Exception('GCP_PROJECT_ID is not set.');
         }
 
-        $hasCalendar = !empty($context['calendar_events']);
+        // Context-dependent turns (calendar, live trip) are never cacheable —
+        // "how many stops left?" has a different answer every minute.
+        $hasVolatileContext = !empty($context['calendar_events']) || !empty($context['nav']);
 
-        // ── Text cache (skip audio turns and calendar-dependent turns) ─────────
+        // ── Text cache (skip audio turns and context-dependent turns) ─────────
         $textCacheKey = null;
-        if ($text && empty($audioFile['base64']) && !$hasCalendar) {
+        if ($text && empty($audioFile['base64']) && !$hasVolatileContext) {
             $textCacheKey = 'navigo_text_cache:' . md5(strtolower(trim($text)));
             if (Cache::has($textCacheKey)) return Cache::get($textCacheKey);
         }
@@ -254,6 +294,14 @@ class AiAssistantService
         $responseStyle = $voiceSettings['response_style'] ?? null;
         $languageCode  = $voiceSettings['language_code'] ?? 'en-US';
         $systemPrompt  = $this->systemPrompt($responseStyle, $languageCode, $context);
+
+        // ── Persistent user memory (authenticated users only) ─────────────────
+        if ($memoryUser = auth('sanctum')->user()) {
+            $memoryBlock = $this->memory->buildMemoryBlock($memoryUser);
+            if ($memoryBlock) {
+                $systemPrompt .= "\n\n" . $memoryBlock;
+            }
+        }
 
         // Accumulated across tool rounds
         $holdingPhrase = null;
@@ -417,6 +465,19 @@ class AiAssistantService
                     }
                     $weather     = $this->kwameTools->getWeather($wLat, $wLng);
                     $toolContent = json_encode(['success' => !isset($weather['error'])] + $weather);
+                    break;
+
+                case 'remember_preference':
+                    $memUser = auth('sanctum')->user();
+                    $saved   = $memUser
+                        ? $this->memory->rememberPreference($memUser, (string) ($args['content'] ?? ''))
+                        : false;
+                    $toolContent = json_encode([
+                        'success' => $saved,
+                        'note'    => $memUser
+                            ? ($saved ? 'Remembered. Acknowledge in a few words, then continue.' : 'Already known — do not mention storage, just continue.')
+                            : 'User is not signed in; memory unavailable. Continue without mentioning it.',
+                    ]);
                     break;
 
                 case 'suggest_replies':

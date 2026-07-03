@@ -127,7 +127,7 @@ class TransitEngineService
                 'walkReluctance'        => $walkReluctance,
                 'transferPenalty'       => 120,
                 'arriveBy'              => 'false',
-                'numItineraries'        => 2,
+                'numItineraries'        => config('transit.otp.num_itineraries', 5),
                 'date'                  => $date,
                 'time'                  => $time,
                 'showIntermediateStops' => 'true',
