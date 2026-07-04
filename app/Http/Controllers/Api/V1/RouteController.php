@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\LogJourneyJob;
+use App\Services\SafetyScoreService;
 use App\Services\TransitEngineService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,7 +13,10 @@ use Illuminate\Support\Facades\Log;
 
 class RouteController extends Controller
 {
-    public function __construct(private TransitEngineService $transitService) {}
+    public function __construct(
+        private TransitEngineService $transitService,
+        private SafetyScoreService   $safetyScore,
+    ) {}
 
     public function calculate(Request $request): JsonResponse
     {
@@ -60,6 +64,9 @@ class RouteController extends Controller
             Log::info('No route found.');
             return response()->json(['data' => []]);
         }
+
+        // Night trips: annotate alternatives with safety scores + "safer" flag.
+        $this->safetyScore->annotate($routes);
 
         Log::info('Routes calculated', ['count' => \count($routes), 'summaries' => array_column($routes, 'summary')]);
 

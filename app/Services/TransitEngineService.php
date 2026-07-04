@@ -263,6 +263,24 @@ class TransitEngineService
             $encoded  = $leg['legGeometry']['points'] ?? '';
             $otpCoords = $encoded ? $this->decodePolyline($encoded) : [];
 
+            // Community landmark for the boarding stop — "Kencom, in front of
+            // Hilton" beats coordinates at informal stages.
+            $fromLandmark = null;
+            if ($isTransit) {
+                try {
+                    $fromStopId = $leg['from']['stopId'] ?? null;
+                    if ($fromStopId) {
+                        $sid = \str_contains($fromStopId, ':') ? explode(':', $fromStopId, 2)[1] : $fromStopId;
+                        $fromLandmark = Stop::where('id', $sid)->value('landmark');
+                    }
+                    if (!$fromLandmark && $fromName !== 'Unknown') {
+                        $fromLandmark = Stop::where('name', $fromName)->value('landmark');
+                    }
+                } catch (Exception $e) {
+                    // Landmark is decorative — never block routing on it.
+                }
+            }
+
             if ($isTransit) {
                 // Use the authoritative GTFS shape sliced between the two stops.
                 // Falls back to OTP's legGeometry polyline (also derived from the GTFS shape).
@@ -334,6 +352,7 @@ class TransitEngineService
                     'name' => $fromName === 'Origin'      ? 'Current Location' : $fromName,
                     'lat'  => $leg['from']['lat'],
                     'lng'  => $leg['from']['lon'],
+                    'landmark' => $fromLandmark,
                 ],
                 'to'          => [
                     'name' => $toName === 'Destination' ? 'Destination' : $toName,

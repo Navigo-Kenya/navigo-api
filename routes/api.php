@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\JourneyFeedbackController;
 use App\Http\Controllers\Api\V1\KwameSttController;
 use App\Http\Controllers\Api\V1\KwameMemoryController;
+use App\Http\Controllers\Api\V1\NavMetricsController;
 use App\Http\Controllers\Api\V1\RouteController;
 use App\Http\Controllers\Api\V1\SavedJourneysController;
 use App\Http\Controllers\Api\V1\SavedPlacesController;
@@ -73,6 +74,9 @@ Route::prefix('v1')->group(function () {
     Route::post('/journey/calculate', [RouteController::class, 'calculate']);
     Route::post('/journey/ai-plan',   [AiTransitController::class, 'planRouteWithAi']);
     Route::post('/journey/feedback',  [JourneyFeedbackController::class, 'store'])->middleware('throttle:60,1');
+
+    // ── Navigation telemetry (batched, guest-ok) ───────────────────
+    Route::post('/telemetry/nav-metrics', [NavMetricsController::class, 'store'])->middleware('throttle:30,1');
 
     // ── Kwame TTS ──────────────────────────────────────────────────
     Route::post('/kwame/speak', [KwameTtsController::class, 'speak']);

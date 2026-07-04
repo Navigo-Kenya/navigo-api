@@ -16,6 +16,7 @@
         "league/flysystem-aws-s3-v3": "^3.34",
         "openspout/openspout": "^5.3",
         "predis/predis": "^3.4",
+        "sentry/sentry-laravel": "^4.26",
         "spatie/laravel-permission": "^8.0"
     },
     "require-dev": {
