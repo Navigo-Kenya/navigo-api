@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\SendPushNotificationJob;
 use App\Models\ReportVote;
 use App\Models\TransitReport;
 use App\Models\User;
@@ -193,6 +194,14 @@ class ReportService
         // One-time community validation bonus when crossing 5 upvotes.
         if ($vote === 'up' && $prevUpvotes < 5 && $report->upvotes >= 5 && $report->user_id) {
             DB::table('users')->where('id', $report->user_id)->increment('points', 5);
+            // Notify the reporter that their report reached community consensus.
+            SendPushNotificationJob::dispatch(
+                $report->user_id,
+                'points_earned',
+                'Your report is trending! 🔥',
+                '5 people confirmed your report — +5 Safiri Points',
+                ['screen' => '/(tabs)/map'],
+            )->onQueue('default');
         }
 
         // Enhanced auto-dismiss: low reliability OR heavy negative ratio.

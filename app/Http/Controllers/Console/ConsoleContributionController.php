@@ -71,12 +71,8 @@ class ConsoleContributionController extends Controller
 
         $contribution = Contribution::where('status', 'pending')->findOrFail($id);
 
-        $contribution->update([
-            'status'         => 'rejected', // canonical status; console shows "Declined"
-            'decline_reason' => $data['reason'],
-            'reviewed_at'    => now(),
-            'reviewed_by'    => auth()->id(),
-        ]);
+        // Service handles the DB update + rejection push notification to the author.
+        $this->service->decline($contribution, auth()->id(), $data['reason']);
 
         return response()->json(['message' => 'Contribution declined.']);
     }

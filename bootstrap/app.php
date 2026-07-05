@@ -8,7 +8,6 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
-use Sentry\Laravel\Integration;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -40,6 +39,10 @@ return Application::configure(basePath: dirname(__DIR__))
         RateLimiter::for('auth', fn ($r) => Limit::perMinute(10)->by($r->ip()));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        // Sentry crash reporting — inert until SENTRY_LARAVEL_DSN is set in .env.
-        Integration::handles($exceptions);
+        // Sentry crash reporting — inert until the package is installed and
+        // SENTRY_LARAVEL_DSN is set. Guard with class_exists so the app boots
+        // without composer require sentry/sentry-laravel.
+        if (class_exists(\Sentry\Laravel\Integration::class)) {
+            \Sentry\Laravel\Integration::handles($exceptions);
+        }
     })->create();

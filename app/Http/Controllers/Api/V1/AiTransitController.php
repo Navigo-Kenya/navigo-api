@@ -50,6 +50,10 @@ class AiTransitController extends Controller
             'context.nav.current_stop'           => ['nullable', 'string', 'max:150'],
             'context.nav.remaining_m'            => ['nullable', 'numeric', 'min:0'],
             'context.nav.eta'                    => ['nullable', 'string', 'max:30'],
+            // Vision: accepted but ignored until KWAME_VISION_ENABLED=true (needs SACCO livery dataset).
+            'image'                              => ['nullable', 'array'],
+            'image.base64'                       => ['nullable', 'string', 'max:2000000'],
+            'image.mime'                         => ['nullable', 'string', 'in:image/jpeg,image/png,image/webp'],
         ]);
 
         $sessionId = $validated['session_id'] ?? 'default';

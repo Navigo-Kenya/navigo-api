@@ -143,6 +143,35 @@ class ContributionService
         }
     }
 
+    /**
+     * Reject a contribution and notify the author so they know the outcome
+     * and can improve their future submissions.
+     */
+    public function decline(Contribution $contribution, ?int $reviewerId = null, ?string $reason = null): void
+    {
+        $contribution->update([
+            'status'         => 'rejected',
+            'decline_reason' => $reason,
+            'reviewed_at'    => now(),
+            'reviewed_by'    => $reviewerId,
+        ]);
+
+        $user = $contribution->user;
+        if ($user) {
+            $body = $reason
+                ? "Reason: {$reason}"
+                : "It didn't meet our accuracy standards — keep contributing!";
+
+            SendPushNotificationJob::dispatch(
+                $user->id,
+                'points_earned', // reuses the same opt-in toggle (contribution outcomes)
+                'Contribution not approved',
+                "\"{$contribution->title}\" — {$body}",
+                ['screen' => '/(tabs)/contribution'],
+            )->onQueue('default');
+        }
+    }
+
     public function awardPoints(User $user, Contribution $contribution, int $points): int
     {
         if ($points <= 0) return 0;
