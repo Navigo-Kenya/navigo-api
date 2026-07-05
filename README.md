@@ -183,13 +183,13 @@ Submit rating + optional comment for a completed journey (throttled: 60/min).
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | `GET` | `/contributions/nearby?lat&lng` | — | Nearby crowdsourced contributions |
-| `GET` | `/community/leaderboard` | — | Top contributors by points |
+| `GET` | `/community/leaderboard?period=all\|weekly` | — | Top contributors by points; default `all`, `weekly` ranks last 7 days |
 | `GET` | `/user/contributions` | ✓ | User's own contributions |
 | `POST` | `/user/contributions` | ✓ | Submit a new contribution |
 | `PATCH` | `/user/contributions/{id}` | ✓ | Edit own contribution |
 | `DELETE` | `/user/contributions/{id}` | ✓ | Delete own contribution |
 | `POST` | `/contributions/{id}/vote` | ✓ | Upvote / downvote a contribution |
-| `GET` | `/user/community/stats` | ✓ | Personal points, badges, rank |
+| `GET` | `/user/community/stats` | ✓ | Personal points, badges, rank, `streak_days`, `contributed_today` |
 | `GET` | `/user/badges` | ✓ | Earned badges |
 
 ### Saved Data
@@ -707,7 +707,7 @@ Throttled at 30 req/min. Results cached 5 min.
 
 | Service | Purpose |
 |---------|---------|
-| `TransitEngineService` | Central routing proxy. Calls OTP with `mode=TRANSIT,WALK`, `maxWalkDistance=1500`, `walkReluctance=13.5`, `numItineraries=2`. Redis-cached 5 min. Nighttime mode: forces 14:00 when local time is 20:00–04:00. Stop proximity fallback via KNN. |
+| `TransitEngineService` | Central routing proxy. Calls OTP with `mode=TRANSIT,WALK`, `maxWalkDistance=1500`, `walkReluctance=13.5`, `numItineraries=config('transit.otp.num_itineraries', 5)`. Redis-cached 5 min. Nighttime mode: forces 14:00 when local time is 20:00–04:00. Stop proximity fallback via KNN. |
 | `AiAssistantService` | Manages the Kwame conversational pipeline. Dual-tool Gemini architecture forces `calculate_route` or `chat_or_clarify` on every turn. |
 | `LedgerService` | Revenue split processing — percentage mode and Lengo (fixed target) mode. Daily SACCO levy application. UUID wallet creation and management. |
 | `WalkingService` | Walking leg routing via Google Directions API. Results cached per origin/destination pair in `cached_walking_routes`. |
@@ -723,8 +723,8 @@ Throttled at 30 req/min. Results cached 5 min.
 | `NetworkAnalysisService` | Stop coverage GeoJSON and transfer graph computation. |
 | `NetworkSnapshotService` | Records immutable network snapshots on every stop/route/trip change. |
 | `IsochroneService` | Walk-shed reachability maps from a given origin point. |
-| `ContributionService` | Creates contributions, awards community points on approval, checks badge thresholds. |
-| `ReportService` | Viewport-scoped transit reports with vote tallying. |
+| `ContributionService` | Creates contributions, awards community points + streak bonus on approval, checks badge thresholds. `decline()` sets status to `rejected` and dispatches a rejection push to the author. |
+| `ReportService` | Viewport-scoped transit reports with vote tallying. Dispatches a +5 pts push when a report's upvote count first crosses 5. |
 | `PushNotificationService` | Sends push notifications via Expo Push API. Dispatches `SendPushNotificationJob`. |
 | `AuditService` | Logs actor + action + target to `audit_logs`. |
 | `ImportService` | Generic CSV import pipeline: temp-file staging → preview → confirm (used by vehicles, drivers, conductors, members). |
@@ -1135,6 +1135,18 @@ GTFS_VALIDATOR_JAVA_BIN=java
 MAIL_MAILER=log
 MAIL_FROM_ADDRESS=hello@navigo.co.ke
 MAIL_FROM_NAME="Navigo"
+
+# ── Sentry (optional — error tracking) ──────────────────────────────
+# Install: run `composer require sentry/sentry-laravel` locally,
+# commit composer.json + composer.lock, then `composer install` on server.
+# The app boots without the package — bootstrap/app.php uses a class_exists
+# guard so PHP never resolves the class unless it is installed.
+SENTRY_LARAVEL_DSN=
+SENTRY_TRACES_SAMPLE_RATE=0.1
+
+# ── Feature flags ────────────────────────────────────────────────────
+KWAME_VISION_ENABLED=false   # enables image param in /journey/ai-plan
+BRIEFING_LLM=false           # enables Gemini polish for morning briefing
 ```
 
 ### Cache Keys
