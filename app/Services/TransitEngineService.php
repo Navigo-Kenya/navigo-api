@@ -124,7 +124,7 @@ class TransitEngineService
                 'toPlace'               => "{$toLat},{$toLng}",
                 'mode'                  => 'TRANSIT,WALK',
                 // 'maxWalkDistance'       => $maxWalkDistance,
-                'walkReluctance'        => 8,
+                'walkReluctance'        => 5,
                 // 'walkReluctance'        => $walkReluctance,
                 'transferPenalty'       => 120,
                 'arriveBy'              => 'false',
