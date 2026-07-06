@@ -79,8 +79,29 @@ class AiTransitController extends Controller
                 ], 503);
             }
         } catch (Throwable $e) {
-            Log::error('AI Transit processing failed', ['session_id' => $sessionId, 'exception' => $e->getMessage()]);
-            return response()->json(['error' => 'An upstream scheduling error occurred.'], 500);
+            Log::error('AI Transit processing failed', [
+                'session_id' => $sessionId,
+                'exception'  => $e->getMessage(),
+                'class'      => get_class($e),
+                'file'       => $e->getFile() . ':' . $e->getLine(),
+                'trace'      => $e->getTraceAsString(),
+            ]);
+
+            $isConfigError = str_contains($e->getMessage(), 'GCP_PROJECT_ID') || str_contains($e->getMessage(), 'GEMINI_API_KEY');
+
+            if (app()->isLocal() || app()->environment('staging')) {
+                return response()->json([
+                    'error'   => $e->getMessage(),
+                    'class'   => get_class($e),
+                    'hint'    => $isConfigError ? 'Check GCP_PROJECT_ID and GCP_KEY_PATH in your .env file.' : null,
+                ], 500);
+            }
+
+            return response()->json([
+                'error' => $isConfigError
+                    ? 'AI routing is not configured on this server.'
+                    : 'An upstream scheduling error occurred.',
+            ], 500);
         }
 
         // Extract transit elements cleanly for analytics tracking

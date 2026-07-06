@@ -116,10 +116,18 @@ class GoogleLlmService
             ];
 
         } catch (\RuntimeException $e) {
-            throw $e; // propagate sentinel exceptions (VERTEX_QUOTA_EXCEEDED, VERTEX_TIMEOUT)
+            $msg = $e->getMessage();
+            // Sentinel codes propagate to AiAssistantService for friendly user messages.
+            if (in_array($msg, ['VERTEX_QUOTA_EXCEEDED', 'VERTEX_TIMEOUT'], true)) {
+                throw $e;
+            }
+            // Config / infrastructure errors (missing key file, no access_token) —
+            // log with detail and return null so the controller returns 503.
+            Log::error('Vertex AI config/auth error: ' . $msg, ['trace' => $e->getTraceAsString()]);
+            return null;
         } catch (\Throwable $e) {
             $msg = $e->getMessage();
-            Log::error('Vertex AI exception: ' . $msg);
+            Log::error('Vertex AI exception: ' . $msg, ['trace' => $e->getTraceAsString()]);
             if (str_contains($msg, 'cURL error 28')) {
                 throw new \RuntimeException('VERTEX_TIMEOUT');
             }
