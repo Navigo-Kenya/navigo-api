@@ -156,13 +156,25 @@ class FareService
     ): float {
         $now = now();
 
-        // Active modifiers are cached for 60 s so console changes propagate quickly.
-        $modifiers = Cache::remember('fare:modifiers:active', 60, fn () =>
+        // Active modifiers cached as plain arrays — Eloquent objects must not be
+        // stored in the cache because PHP's unserialize() can fail with an
+        // "incomplete object" error when OPcache or a fresh deploy hasn't fully
+        // loaded the class definitions yet.
+        $modifiers = collect(Cache::remember('fare:modifiers:active', 60, fn () =>
             FareModifier::where('is_active', true)
                 ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', $now))
                 ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', $now))
                 ->get()
-        );
+                ->map(fn (FareModifier $m) => [
+                    'type'            => $m->type,
+                    'applies_to'      => $m->applies_to,
+                    'applies_to_id'   => $m->applies_to_id,
+                    'condition_data'  => $m->condition_data ?? [],
+                    'multiplier'      => $m->multiplier,
+                    'fixed_surcharge' => $m->fixed_surcharge,
+                ])
+                ->all()
+        ));
 
         $applicable = $modifiers->filter(
             fn ($mod) => $this->modifierApplies($mod, $routeId, $agencyId, $zoneId, $time)
@@ -172,13 +184,13 @@ class FareService
 
         // Apply multipliers first, then fixed surcharges (same order as preview controller)
         foreach ($applicable as $mod) {
-            if ($mod->multiplier !== null) {
-                $price *= (float) $mod->multiplier;
+            if ($mod['multiplier'] !== null) {
+                $price *= (float) $mod['multiplier'];
             }
         }
         foreach ($applicable as $mod) {
-            if ($mod->fixed_surcharge !== null) {
-                $price += (float) $mod->fixed_surcharge;
+            if ($mod['fixed_surcharge'] !== null) {
+                $price += (float) $mod['fixed_surcharge'];
             }
         }
 
@@ -187,17 +199,17 @@ class FareService
     }
 
     private function modifierApplies(
-        FareModifier $mod,
-        string       $routeId,
-        string       $agencyId,
-        ?string      $zoneId,
-        Carbon       $time,
+        array   $mod,
+        string  $routeId,
+        string  $agencyId,
+        ?string $zoneId,
+        Carbon  $time,
     ): bool {
-        $scopeMatch = match ($mod->applies_to) {
+        $scopeMatch = match ($mod['applies_to']) {
             'all'    => true,
-            'route'  => $mod->applies_to_id === $routeId,
-            'agency' => $mod->applies_to_id === $agencyId,
-            'zone'   => $zoneId !== null && $mod->applies_to_id === $zoneId,
+            'route'  => $mod['applies_to_id'] === $routeId,
+            'agency' => $mod['applies_to_id'] === $agencyId,
+            'zone'   => $zoneId !== null && $mod['applies_to_id'] === $zoneId,
             default  => false,
         };
 
@@ -205,9 +217,9 @@ class FareService
             return false;
         }
 
-        $cond = $mod->condition_data ?? [];
+        $cond = $mod['condition_data'] ?? [];
 
-        return match ($mod->type) {
+        return match ($mod['type']) {
             'peak_hours'  => $this->matchesPeakHours($cond, $time),
             'day_of_week' => $this->matchesDayOfWeek($cond, $time),
             default       => true,
