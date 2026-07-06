@@ -1,6 +1,6 @@
 <div align="center">
 
-# Hopln API
+# Navigo API
 
 **The intelligent transit backend powering Nairobi's matatu navigation.**
 
@@ -13,6 +13,7 @@
 [![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis&logoColor=white)](https://redis.io)
 [![Gemini](https://img.shields.io/badge/Gemini-AI-4285F4?style=flat-square&logo=google&logoColor=white)](https://ai.google.dev)
 [![Mapbox](https://img.shields.io/badge/Mapbox-GL-000000?style=flat-square&logo=mapbox&logoColor=white)](https://mapbox.com)
+[![GitHub](https://img.shields.io/badge/GitHub-navigo--api-181717?style=flat-square&logo=github)](https://github.com/Navigo-Kenya/navigo-api)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square)](LICENSE)
 
 </div>
@@ -21,7 +22,7 @@
 
 ## Overview
 
-Hopln API is the server-side backbone of the **Hopln / Navigo** transit platform — a public-transport assistant for Nairobi's matatu and bus network. It exposes three route surfaces:
+Navigo API is the server-side backbone of the **Navigo** transit platform, a public-transport assistant for Nairobi's matatu and bus network. It exposes three route surfaces:
 
 | Surface | Path prefix | Audience |
 |---------|-------------|----------|
@@ -58,7 +59,7 @@ Mobile App (Expo)                    Console SPA (React)
       │  /api/v1/*                           │  /api/v1/console/*
       ▼                                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                           Hopln API                             │
+│                          Navigo API                             │
 │                     Laravel 13 · PHP 8.3                        │
 │                                                                 │
 │  Passenger Controllers (Api/V1)                                 │
@@ -116,15 +117,15 @@ All endpoints prefixed `/api/v1/`. Public endpoints are throttled at 60 req/min 
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `POST` | `/auth/register` | — | Register with email + password |
-| `POST` | `/auth/login` | — | Login, returns Sanctum token |
-| `POST` | `/auth/google` | — | Google OAuth sign-in |
-| `POST` | `/auth/apple` | — | Apple Sign-In |
-| `POST` | `/auth/phone/set` | — | Set phone number (throttled: otp) |
-| `POST` | `/auth/phone/send` | — | Send OTP SMS (throttled: otp) |
-| `POST` | `/auth/phone/verify` | — | Verify OTP code |
-| `POST` | `/auth/password/forgot` | — | Send password-reset email |
-| `POST` | `/auth/password/reset` | — | Reset password via token |
+| `POST` | `/auth/register` |, | Register with email + password |
+| `POST` | `/auth/login` |, | Login, returns Sanctum token |
+| `POST` | `/auth/google` |, | Google OAuth sign-in |
+| `POST` | `/auth/apple` |, | Apple Sign-In |
+| `POST` | `/auth/phone/set` |, | Set phone number (throttled: otp) |
+| `POST` | `/auth/phone/send` |, | Send OTP SMS (throttled: otp) |
+| `POST` | `/auth/phone/verify` |, | Verify OTP code |
+| `POST` | `/auth/password/forgot` |, | Send password-reset email |
+| `POST` | `/auth/password/reset` |, | Reset password via token |
 | `GET` | `/auth/me` | ✓ | Current user profile |
 | `PATCH` | `/auth/profile` | ✓ | Update display name, bio, etc. |
 | `POST` | `/auth/avatar` | ✓ | Upload avatar to R2 |
@@ -182,8 +183,8 @@ Submit rating + optional comment for a completed journey (throttled: 60/min).
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/contributions/nearby?lat&lng` | — | Nearby crowdsourced contributions |
-| `GET` | `/community/leaderboard?period=all\|weekly` | — | Top contributors by points; default `all`, `weekly` ranks last 7 days |
+| `GET` | `/contributions/nearby?lat&lng` |, | Nearby crowdsourced contributions |
+| `GET` | `/community/leaderboard?period=all\|weekly` |, | Top contributors by points; default `all`, `weekly` ranks last 7 days |
 | `GET` | `/user/contributions` | ✓ | User's own contributions |
 | `POST` | `/user/contributions` | ✓ | Submit a new contribution |
 | `PATCH` | `/user/contributions/{id}` | ✓ | Edit own contribution |
@@ -221,7 +222,7 @@ Submit rating + optional comment for a completed journey (throttled: 60/min).
 
 All endpoints prefixed `/api/v1/console/`. Protected by `auth:sanctum` + `role` middleware + `agency.scope` (multi-tenancy injection). Auth header: `Authorization: Bearer <token>`.
 
-Permission format: `role:<permission>` — a user must hold the listed permission to access the route. Superadmin and `hopln_admin` bypass all permission checks.
+Permission format: `role:<permission>`, a user must hold the listed permission to access the route. Superadmin and `hopln_admin` bypass all permission checks.
 
 ---
 
@@ -253,9 +254,9 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/users` | — | Paginated user list |
-| `GET` | `/users/{id}` | — | User detail |
-| `GET` | `/users/export` | — | Export users as CSV |
+| `GET` | `/users` |, | Paginated user list |
+| `GET` | `/users/{id}` |, | User detail |
+| `GET` | `/users/export` |, | Export users as CSV |
 | `PATCH` | `/users/{id}` | `users.edit` | Update name, role, points |
 | `POST` | `/users/{id}/ban` | `users.ban` | Ban user account |
 | `POST` | `/users/{id}/unban` | `users.ban` | Unban user account |
@@ -267,7 +268,7 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/badges` | — | All badge definitions |
+| `GET` | `/badges` |, | All badge definitions |
 | `POST` | `/badges` | `users.edit` | Create badge |
 | `PATCH` | `/badges/{id}` | `users.edit` | Update badge |
 | `DELETE` | `/badges/{id}` | `users.edit` | Delete badge |
@@ -278,8 +279,8 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/contributions` | — | Paginated contributions queue |
-| `GET` | `/contributions/{id}` | — | Contribution detail |
+| `GET` | `/contributions` |, | Paginated contributions queue |
+| `GET` | `/contributions/{id}` |, | Contribution detail |
 | `PATCH` | `/contributions/{id}` | `contributions.moderate` | Edit contribution data |
 | `POST` | `/contributions/{id}/approve` | `contributions.moderate` | Approve + award points |
 | `POST` | `/contributions/{id}/decline` | `contributions.moderate` | Decline with reason |
@@ -295,13 +296,13 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/stops` | — | Paginated stop list |
-| `GET` | `/stops/{id}` | — | Stop detail |
+| `GET` | `/stops` |, | Paginated stop list |
+| `GET` | `/stops/{id}` |, | Stop detail |
 | `POST` | `/stops` | `stops.create` | Create stop |
 | `PATCH` | `/stops/{id}` | `stops.edit` | Update stop |
 | `DELETE` | `/stops/{id}` | `stops.delete` | Delete stop |
 | `POST` | `/stops/{id}/stop-times` | `stops.edit` | Add stop time to stop |
-| `GET` | `/stops/claimed` | — | Agency-claimed stops |
+| `GET` | `/stops/claimed` |, | Agency-claimed stops |
 | `POST` | `/stops/{id}/claim` | `agencies.edit` | Claim stop for agency |
 | `DELETE` | `/stops/{id}/claim` | `agencies.edit` | Release stop claim |
 
@@ -309,23 +310,23 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/routes` | — | Paginated route list |
-| `GET` | `/routes/{id}` | — | Route detail |
+| `GET` | `/routes` |, | Paginated route list |
+| `GET` | `/routes/{id}` |, | Route detail |
 | `POST` | `/routes` | `routes.create` | Create route |
 | `PATCH` | `/routes/{id}` | `routes.edit` | Update route metadata |
 | `PATCH` | `/routes/{id}/stop-sequence` | `routes.edit` | Reorder stops on a route |
 | `PUT` | `/routes/{id}/shape` | `routes.edit` | Save route shape (GTFS LineString) |
 | `PUT` | `/routes/{id}/trip-stops` | `routes.edit` | Save canonical trip stop sequence |
 | `DELETE` | `/routes/{id}` | `routes.delete` | Delete route |
-| `POST` | `/routes/stops-near-line` | — | Find stops near a drawn polyline |
+| `POST` | `/routes/stops-near-line` |, | Find stops near a drawn polyline |
 
 #### Trips
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/trips` | — | Paginated trip list |
-| `GET` | `/trips/{id}` | — | Trip detail |
-| `GET` | `/trips/pending-review` | — | Trips awaiting approval |
+| `GET` | `/trips` |, | Paginated trip list |
+| `GET` | `/trips/{id}` |, | Trip detail |
+| `GET` | `/trips/pending-review` |, | Trips awaiting approval |
 | `POST` | `/trips` | `trips.create` | Create trip |
 | `PATCH` | `/trips/{id}` | `trips.edit` | Update trip metadata |
 | `PUT` | `/trips/{id}/shape` | `trips.edit` | Save trip shape |
@@ -335,13 +336,13 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 | `POST` | `/trips/{id}/approve` | `scheduling.edit` | Approve draft trip |
 | `POST` | `/trips/{id}/reject` | `scheduling.edit` | Reject draft trip |
 | `DELETE` | `/trips/{id}` | `trips.delete` | Delete trip |
-| `POST` | `/trips/stops-near-line` | — | Find stops near a drawn polyline |
+| `POST` | `/trips/stops-near-line` |, | Find stops near a drawn polyline |
 
 #### Trip Frequencies
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/trips/{tripId}/frequencies` | — | List frequency bands |
+| `GET` | `/trips/{tripId}/frequencies` |, | List frequency bands |
 | `POST` | `/trips/{tripId}/frequencies` | `trips.edit` | Add frequency band |
 | `PATCH` | `/trips/{tripId}/frequencies/{id}` | `trips.edit` | Update frequency band |
 | `DELETE` | `/trips/{tripId}/frequencies/{id}` | `trips.edit` | Delete frequency band |
@@ -350,8 +351,8 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/service-calendars` | — | All service calendars |
-| `GET` | `/service-calendars/{id}` | — | Calendar detail |
+| `GET` | `/service-calendars` |, | All service calendars |
+| `GET` | `/service-calendars/{id}` |, | Calendar detail |
 | `POST` | `/service-calendars` | `calendars.create` | Create calendar |
 | `PATCH` | `/service-calendars/{id}` | `calendars.edit` | Update calendar |
 | `DELETE` | `/service-calendars/{id}` | `calendars.delete` | Delete calendar |
@@ -363,7 +364,7 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/route-patterns` | — | All route patterns |
+| `GET` | `/route-patterns` |, | All route patterns |
 | `POST` | `/route-patterns` | `network.edit` | Create pattern |
 | `PATCH` | `/route-patterns/{id}` | `network.edit` | Update pattern |
 | `PUT` | `/route-patterns/{id}/stops` | `network.edit` | Save pattern stop sequence |
@@ -375,13 +376,13 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/gtfs/status` | — | GTFS build status + last sync time |
+| `GET` | `/gtfs/status` |, | GTFS build status + last sync time |
 | `POST` | `/gtfs/validate` | `gtfs.view` | Run internal GTFS validator (9 checks) |
 | `GET` | `/gtfs/official-validate` | `gtfs.view` | Run Google GTFS Validator JAR (cached 30 min) |
 | `POST` | `/gtfs/export` | `gtfs.sync` | Export GTFS + trigger OTP rebuild |
 | `POST` | `/gtfs/export-as` | `gtfs.export` | Download as `gtfs`, `gtfs-flex`, `excel`, or `netex` |
-| `GET` | `/otp/status` | — | OTP health + last build log |
-| `GET` | `/otp/log` | — | Full OTP build log |
+| `GET` | `/otp/status` |, | OTP health + last build log |
+| `GET` | `/otp/log` |, | Full OTP build log |
 | `POST` | `/otp/sync` | `gtfs.sync` | Manually trigger OTP graph rebuild |
 | `POST` | `/otp/cancel` | `gtfs.sync` | Cancel running OTP sync |
 
@@ -391,10 +392,10 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/quality/score` | — | Overall score (0–100) + 6 metrics (cached 1 h) |
-| `GET` | `/quality/drill-down?metric=X` | — | Entity list for one metric |
-| `GET` | `/quality/shape-inspector?trip_id=X` | — | Stop gaps, teleports, reversals for a trip |
-| `GET` | `/quality/duplicate-stops?radius=N` | — | Stop pairs within N metres (default 50) |
+| `GET` | `/quality/score` |, | Overall score (0–100) + 6 metrics (cached 1 h) |
+| `GET` | `/quality/drill-down?metric=X` |, | Entity list for one metric |
+| `GET` | `/quality/shape-inspector?trip_id=X` |, | Stop gaps, teleports, reversals for a trip |
+| `GET` | `/quality/duplicate-stops?radius=N` |, | Stop pairs within N metres (default 50) |
 | `POST` | `/quality/merge-stops` | `quality.fix` | Merge duplicate into canonical |
 | `POST` | `/stops/{id}/snap` | `quality.fix` | Snap stop to nearest road |
 
@@ -404,30 +405,30 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/network/graph` | — | Route-stop graph (nodes + edges) |
-| `GET` | `/network/coverage` | — | Stop coverage GeoJSON |
-| `POST` | `/network/isochrone` | — | Walk-shed isochrone from a point |
-| `GET` | `/network/desire-lines` | — | Origin–destination flow lines |
-| `GET` | `/network/transfer-graph` | — | Transfer connection graph |
-| `GET` | `/network/cross-agency-transfers` | — | Inter-agency transfer points |
-| `GET` | `/network/agencies` | — | Agency layer for the map |
-| `GET` | `/network/modal-layers` | — | OSM multi-modal layers |
+| `GET` | `/network/graph` |, | Route-stop graph (nodes + edges) |
+| `GET` | `/network/coverage` |, | Stop coverage GeoJSON |
+| `POST` | `/network/isochrone` |, | Walk-shed isochrone from a point |
+| `GET` | `/network/desire-lines` |, | Origin–destination flow lines |
+| `GET` | `/network/transfer-graph` |, | Transfer connection graph |
+| `GET` | `/network/cross-agency-transfers` |, | Inter-agency transfer points |
+| `GET` | `/network/agencies` |, | Agency layer for the map |
+| `GET` | `/network/modal-layers` |, | OSM multi-modal layers |
 | `POST` | `/network/modal-layers/refresh-osm` | `network.edit` | Refresh OSM layer cache |
-| `GET` | `/network/snapshots` | — | Saved network snapshots |
+| `GET` | `/network/snapshots` |, | Saved network snapshots |
 | `POST` | `/network/snapshots` | `network.edit` | Create network snapshot |
-| `GET` | `/network/snapshots/{id}` | — | Snapshot detail |
+| `GET` | `/network/snapshots/{id}` |, | Snapshot detail |
 
 #### Corridors
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/corridors` | — | Corridor list |
-| `GET` | `/corridors/{id}` | — | Corridor detail + shape |
+| `GET` | `/corridors` |, | Corridor list |
+| `GET` | `/corridors/{id}` |, | Corridor detail + shape |
 | `POST` | `/corridors` | `network.edit` | Create corridor |
 | `PATCH` | `/corridors/{id}` | `network.edit` | Update corridor |
 | `PUT` | `/corridors/{id}/shape` | `network.edit` | Save corridor shape |
 | `DELETE` | `/corridors/{id}` | `network.edit` | Delete corridor |
-| `GET` | `/corridors/{id}/routes` | — | Routes running through corridor |
+| `GET` | `/corridors/{id}/routes` |, | Routes running through corridor |
 | `POST` | `/corridors/{id}/routes` | `network.edit` | Attach route to corridor |
 | `DELETE` | `/corridors/{id}/routes/{rid}` | `network.edit` | Detach route |
 
@@ -435,14 +436,14 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/scenarios` | — | Planning scenarios list |
-| `GET` | `/scenarios/{id}` | — | Scenario detail |
+| `GET` | `/scenarios` |, | Planning scenarios list |
+| `GET` | `/scenarios/{id}` |, | Scenario detail |
 | `POST` | `/scenarios` | `network.edit` | Create scenario |
 | `PATCH` | `/scenarios/{id}` | `network.edit` | Update scenario |
 | `DELETE` | `/scenarios/{id}` | `network.edit` | Delete scenario |
 | `POST` | `/scenarios/{id}/overrides` | `network.edit` | Add route/stop override |
 | `DELETE` | `/scenarios/{id}/overrides/{oid}` | `network.edit` | Remove override |
-| `GET` | `/scenarios/{id}/compare` | — | Compare scenario vs baseline |
+| `GET` | `/scenarios/{id}/compare` |, | Compare scenario vs baseline |
 | `POST` | `/scenarios/{id}/publish` | `network.publish_scenario` | Publish scenario to live network |
 
 ---
@@ -451,11 +452,11 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/routes/{id}/timetable` | — | Timetable data for a route |
+| `GET` | `/routes/{id}/timetable` |, | Timetable data for a route |
 | `PUT` | `/routes/{id}/timetable` | `scheduling.edit` | Save timetable |
 | `POST` | `/scheduling/optimize-headway` | `scheduling.edit` | Generate optimised headway suggestions |
-| `GET` | `/scheduling/layover-analysis` | — | Layover times per terminal |
-| `GET` | `/scheduling/blocks` | — | Vehicle block assignments |
+| `GET` | `/scheduling/layover-analysis` |, | Layover times per terminal |
+| `GET` | `/scheduling/blocks` |, | Vehicle block assignments |
 
 ---
 
@@ -469,7 +470,7 @@ Permission format: `role:<permission>` — a user must hold the listed permissio
 | `GET/POST/DELETE` | `/fares/route-fares` | `fares.edit` | Route-based fares CRUD |
 | `GET/POST/PATCH/DELETE` | `/fares/modifiers` | `fares.edit` | Fare modifiers (concession, peak, etc.) |
 | `POST` | `/fares/modifiers/{id}/toggle` | `fares.edit` | Enable / disable a modifier |
-| `GET` | `/fares/preview` | — | Simulate fare for an itinerary |
+| `GET` | `/fares/preview` |, | Simulate fare for an itinerary |
 | `GET` | `/fares/export` | `fares.edit` | Export GTFS fare files |
 
 ---
@@ -493,15 +494,15 @@ GTFS-flex pathways and station levels for accessibility mapping.
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/vehicles` | — | Paginated vehicle list |
-| `GET` | `/vehicles/{id}` | — | Vehicle detail |
+| `GET` | `/vehicles` |, | Paginated vehicle list |
+| `GET` | `/vehicles/{id}` |, | Vehicle detail |
 | `POST` | `/vehicles` | `fleet.edit` | Register vehicle |
 | `PATCH` | `/vehicles/{id}` | `fleet.edit` | Update vehicle |
 | `DELETE` | `/vehicles/{id}` | `fleet.edit` | Remove vehicle |
 | `GET` | `/vehicles/import/sample` | `fleet.edit` | Download import CSV template |
 | `POST` | `/vehicles/import/preview` | `fleet.edit` | Preview CSV import |
 | `POST` | `/vehicles/import/confirm` | `fleet.edit` | Confirm CSV import |
-| `GET` | `/compliance/expiry-summary` | — | Document expiry summary |
+| `GET` | `/compliance/expiry-summary` |, | Document expiry summary |
 
 #### Vehicle Documents & Devices
 
@@ -522,8 +523,8 @@ GTFS-flex pathways and station levels for accessibility mapping.
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/shifts` | — | Shift list |
-| `GET` | `/shifts/uncovered` | — | Trips with no assigned shift |
+| `GET` | `/shifts` |, | Shift list |
+| `GET` | `/shifts/uncovered` |, | Trips with no assigned shift |
 | `POST/PATCH/DELETE` | `/shifts` | `fleet.edit` | Shift CRUD |
 | `POST` | `/shifts/{id}/start` | `fleet.edit` | Start a shift |
 | `POST` | `/shifts/{id}/end` | `fleet.edit` | End a shift |
@@ -534,7 +535,7 @@ GTFS-flex pathways and station levels for accessibility mapping.
 |--------|----------|------------|-------------|
 | `GET/POST/PATCH/DELETE` | `/fleet/owners` | `fleet.edit` | Owner CRUD |
 | `POST` | `/fleet/owners/{id}/photo` | `fleet.edit` | Upload owner photo |
-| `GET` | `/fleet/owners/{id}/summary` | — | Owner revenue + vehicle summary |
+| `GET` | `/fleet/owners/{id}/summary` |, | Owner revenue + vehicle summary |
 | `GET/POST/DELETE` | `/fleet/owners/{id}/documents` | `fleet.edit` | Owner documents CRUD |
 
 #### Expenses & Maintenance
@@ -542,7 +543,7 @@ GTFS-flex pathways and station levels for accessibility mapping.
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
 | `GET/POST/DELETE` | `/fleet/expenses` | `fleet.edit` | Vehicle expense CRUD |
-| `GET` | `/fleet/expenses/summary` | — | Expense summary by category |
+| `GET` | `/fleet/expenses/summary` |, | Expense summary by category |
 | `GET/POST/PATCH/DELETE` | `/fleet/maintenance` | `fleet.edit` | Maintenance window CRUD |
 
 ---
@@ -564,7 +565,7 @@ GTFS-flex pathways and station levels for accessibility mapping.
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/stage-queues` | — | Active queue at a terminus |
+| `GET` | `/stage-queues` |, | Active queue at a terminus |
 | `POST` | `/stage-queues` | `ops.view` | Add vehicle to queue |
 | `POST` | `/stage-queues/reorder` | `ops.view` | Reorder queue |
 | `POST` | `/stage-queues/{id}/depart` | `ops.view` | Mark vehicle as departed |
@@ -583,7 +584,7 @@ GTFS-flex pathways and station levels for accessibility mapping.
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
 | `GET/POST/PATCH` | `/ops/incidents` | `ops.manage_incidents` | Incident CRUD |
-| `GET` | `/ops/incidents/stats` | — | Incident statistics |
+| `GET` | `/ops/incidents/stats` |, | Incident statistics |
 | `POST` | `/ops/incidents/{id}/resolve` | `ops.manage_incidents` | Resolve incident |
 | `POST` | `/ops/incidents/{id}/assign` | `ops.manage_incidents` | Assign incident |
 
@@ -601,16 +602,16 @@ GTFS-flex pathways and station levels for accessibility mapping.
 |--------|----------|------------|-------------|
 | `GET/POST` | `/ledger/split-configs` | `ledger.configure` | Revenue split configuration per agency |
 | `POST` | `/ledger/daily-levy` | `ledger.configure` | Apply daily SACCO levy across agency vehicles |
-| `GET` | `/ledger/wallets` | — | Agency wallet list |
-| `GET` | `/ledger/wallets/{id}/transactions` | — | Transaction history for a wallet |
-| `GET` | `/ledger/fleet-revenue` | — | Fleet-wide revenue summary |
-| `GET` | `/ledger/revenue-trend` | — | Revenue trend over time |
-| `GET` | `/ledger/vehicles/{id}/revenue` | — | Per-vehicle revenue breakdown |
-| `GET` | `/ledger/route-revenue` | — | Revenue per route |
+| `GET` | `/ledger/wallets` |, | Agency wallet list |
+| `GET` | `/ledger/wallets/{id}/transactions` |, | Transaction history for a wallet |
+| `GET` | `/ledger/fleet-revenue` |, | Fleet-wide revenue summary |
+| `GET` | `/ledger/revenue-trend` |, | Revenue trend over time |
+| `GET` | `/ledger/vehicles/{id}/revenue` |, | Per-vehicle revenue breakdown |
+| `GET` | `/ledger/route-revenue` |, | Revenue per route |
 | `POST` | `/ledger/test-split` | `ledger.configure` | Simulate a revenue split calculation |
 | `GET/POST/PATCH` | `/banking` | `ledger.configure` | Daily banking records CRUD |
-| `GET` | `/banking/summary` | — | Banking summary by period |
-| `GET` | `/banking/trends` | — | Banking trend chart |
+| `GET` | `/banking/summary` |, | Banking summary by period |
+| `GET` | `/banking/trends` |, | Banking trend chart |
 | `GET/POST` | `/vehicle-targets` | `fleet.edit` | Daily revenue targets per vehicle |
 | `POST` | `/payroll/generate` | `ledger.view` | Generate payroll for a period |
 
@@ -645,16 +646,16 @@ GTFS-flex pathways and station levels for accessibility mapping.
 | `PATCH` | `/agencies/{id}` | `agencies.edit` | Update agency |
 | `POST` | `/agencies/{id}/logo` | `agencies.edit` | Upload agency logo |
 | `DELETE` | `/agencies/{id}` | `agencies.delete` | Delete agency |
-| `GET` | `/agencies/{id}/onboarding-status` | — | Onboarding checklist |
+| `GET` | `/agencies/{id}/onboarding-status` |, | Onboarding checklist |
 | `POST` | `/agencies/{id}/complete-onboarding` | `agencies.edit` | Mark onboarding complete |
-| `GET` | `/agencies/{id}/operated-routes` | — | Routes operated by agency |
-| `GET` | `/agencies/{id}/available-routes` | — | Unclaimed routes available to claim |
+| `GET` | `/agencies/{id}/operated-routes` |, | Routes operated by agency |
+| `GET` | `/agencies/{id}/available-routes` |, | Unclaimed routes available to claim |
 | `POST` | `/agencies/{id}/operated-routes` | `agencies.edit` | Claim routes for agency |
 | `DELETE` | `/agencies/{id}/operated-routes/{route}` | `agencies.edit` | Release route claim |
 | `POST` | `/agencies/{id}/impersonate` | `access.impersonate` | Impersonate agency context |
 | `GET/POST/DELETE` | `/invitations` | `agencies.edit` | Staff invitation CRUD |
 | `GET` | `/audit-logs` | `settings.view` | Audit event log |
-| `GET` | `/route-licenses` | — | Route operating licenses |
+| `GET` | `/route-licenses` |, | Route operating licenses |
 | `POST/PATCH/DELETE` | `/route-licenses` | `agencies.edit` | License CRUD |
 
 ---
@@ -695,7 +696,7 @@ Throttled at 30 req/min. Results cached 5 min.
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| `GET` | `/notifications` | — | Sent notification log |
+| `GET` | `/notifications` |, | Sent notification log |
 | `POST` | `/notifications/broadcast` | `notifications.send` | Broadcast push notification to all users |
 | `POST` | `/broadcasts/fleet` | `notifications.send` | Broadcast to fleet personnel |
 
@@ -709,7 +710,7 @@ Throttled at 30 req/min. Results cached 5 min.
 |---------|---------|
 | `TransitEngineService` | Central routing proxy. Calls OTP with `mode=TRANSIT,WALK`, `maxWalkDistance=1500`, `walkReluctance=13.5`, `numItineraries=config('transit.otp.num_itineraries', 5)`. Redis-cached 5 min. Nighttime mode: forces 14:00 when local time is 20:00–04:00. Stop proximity fallback via KNN. |
 | `AiAssistantService` | Manages the Kwame conversational pipeline. Dual-tool Gemini architecture forces `calculate_route` or `chat_or_clarify` on every turn. |
-| `LedgerService` | Revenue split processing — percentage mode and Lengo (fixed target) mode. Daily SACCO levy application. UUID wallet creation and management. |
+| `LedgerService` | Revenue split processing, percentage mode and Lengo (fixed target) mode. Daily SACCO levy application. UUID wallet creation and management. |
 | `WalkingService` | Walking leg routing via Google Directions API. Results cached per origin/destination pair in `cached_walking_routes`. |
 | `LocationService` | Tiered stop lookup: exact → starts-with → contains (ILIKE on local DB). Falls back to Mapbox Geocoding when fewer than 3 local results. `pg_trgm` similarity for fuzzy duplicate detection. |
 | `GeocodingService` | Server-side geocoding via Mapbox. Results cached 24 h. |
@@ -771,7 +772,7 @@ NeTExExporter       ← SimpleXMLElement; ResourceFrame + SiteFrame + ServiceFra
 ExporterFactory     ← make(string $format): ExporterContract
 ```
 
-### StorageService — R2 Setup
+### StorageService, R2 Setup
 
 R2 is an S3-compatible object store with zero egress fees. The Laravel filesystem disk `r2` is configured in `config/filesystems.php`:
 
@@ -817,14 +818,14 @@ All uploaded files are served through the `files.navigo.co.ke` custom domain. No
 | Job | Queue | Timeout | Purpose |
 |-----|-------|---------|---------|
 | `OtpSyncJob` | `otp` | 20 min | Full GTFS pipeline: export → validate → deliver → rebuild graph → health-poll. Flushes Redis journey cache on success. |
-| `LogJourneyJob` | `default` | — | Persist journey log for analytics and desire-line computation |
-| `SendPushNotificationJob` | `default` | — | Dispatch Expo push notification |
-| `AggregateDelayReportsJob` | `default` | — | Aggregate delay reports into on-time performance records |
-| `ComputeOnTimePerformanceJob` | `default` | — | Compute OTP metrics per trip |
-| `CheckHeadwaySlaJob` | `default` | — | Evaluate headway SLA violations |
-| `CheckIncidentEscalationsJob` | `default` | — | Auto-escalate unresolved incidents past thresholds |
-| `PurgeOldPositionsJob` | `default` | — | Delete stale vehicle position records |
-| `PurgeOldTripUpdatesJob` | `default` | — | Delete stale GTFS-RT trip updates |
+| `LogJourneyJob` | `default` |, | Persist journey log for analytics and desire-line computation |
+| `SendPushNotificationJob` | `default` |, | Dispatch Expo push notification |
+| `AggregateDelayReportsJob` | `default` |, | Aggregate delay reports into on-time performance records |
+| `ComputeOnTimePerformanceJob` | `default` |, | Compute OTP metrics per trip |
+| `CheckHeadwaySlaJob` | `default` |, | Evaluate headway SLA violations |
+| `CheckIncidentEscalationsJob` | `default` |, | Auto-escalate unresolved incidents past thresholds |
+| `PurgeOldPositionsJob` | `default` |, | Delete stale vehicle position records |
+| `PurgeOldTripUpdatesJob` | `default` |, | Delete stale GTFS-RT trip updates |
 
 Production queue worker (from `docker-compose.prod.yml`):
 ```bash
@@ -975,12 +976,12 @@ The `Stop.location` and `Shape.path` columns are PostGIS geometry columns. All p
 
 - PHP 8.3 + Composer
 - Docker (PostgreSQL + PostGIS, Redis, OTP)
-- Java 11+ (optional — only for Google GTFS Validator JAR)
+- Java 11+ (optional, only for Google GTFS Validator JAR)
 
 ### Installation
 
 ```bash
-git clone <repo-url> hopln-api
+git clone https://github.com/Navigo-Kenya/navigo-api
 cd hopln-api
 composer install
 
@@ -1136,10 +1137,10 @@ MAIL_MAILER=log
 MAIL_FROM_ADDRESS=hello@navigo.co.ke
 MAIL_FROM_NAME="Navigo"
 
-# ── Sentry (optional — error tracking) ──────────────────────────────
+# ── Sentry (optional, error tracking) ──────────────────────────────
 # Install: run `composer require sentry/sentry-laravel` locally,
 # commit composer.json + composer.lock, then `composer install` on server.
-# The app boots without the package — bootstrap/app.php uses a class_exists
+# The app boots without the package, bootstrap/app.php uses a class_exists
 # guard so PHP never resolves the class unless it is installed.
 SENTRY_LARAVEL_DSN=
 SENTRY_TRACES_SAMPLE_RATE=0.1
@@ -1177,7 +1178,7 @@ php artisan test --filter=RouteCalculationTest
 
 ## Backup & Restore
 
-Three scripts in `scripts/` handle the full backup lifecycle. All backups go to **`navigo-backups`** — a dedicated private Cloudflare R2 bucket with no public access and no custom domain, separate from the `navigo-files` public bucket used by `StorageService`. Same R2 credentials, different bucket.
+Three scripts in `scripts/` handle the full backup lifecycle. All backups go to **`navigo-backups`**, a dedicated private Cloudflare R2 bucket with no public access and no custom domain, separate from the `navigo-files` public bucket used by `StorageService`. Same R2 credentials, different bucket.
 
 ### What gets backed up
 
@@ -1263,14 +1264,14 @@ no_check_bucket = true
 
 ## Transit Data Strategy
 
-Hopln's routing data originates from the **Digital Matatus project**, the first complete GTFS dataset for Nairobi's informal transit network, produced by the University of Nairobi and Columbia University. It maps every named matatu route: stop locations, route alignments, and transfer points.
+Navigo's routing data originates from the **Digital Matatus project**, the first complete GTFS dataset for Nairobi's informal transit network, produced by the University of Nairobi and Columbia University. It maps every named matatu route: stop locations, route alignments, and transfer points.
 
 **What GTFS does well in Nairobi**: stop proximity, route discovery, multi-leg journey planning. Physical route alignments change slowly, so this data is reliably accurate.
 
-**Where static GTFS falls short**: matatus are *fill-and-go*, not scheduled. A static timetable implies a fixed departure time — a concept that does not exist in Nairobi. Two factors the Hopln algorithm accounts for that standard GTFS routing ignores:
+**Where static GTFS falls short**: matatus are *fill-and-go*, not scheduled. A static timetable implies a fixed departure time, a concept that does not exist in Nairobi. Two factors the Navigo algorithm accounts for that standard GTFS routing ignores:
 
-- **Fill-Time Factor** — per-terminus dwell time before a vehicle departs (varies 2–25 min depending on time of day, route, and demand). Stored as a rolling average from GPS data once the IoT layer is live.
-- **Mshukiwa Factor** — per-segment travel-time multiplier for roadside loading and alighting at non-official stops on high-demand corridors (Ngong Road, Thika Road, Mombasa Road).
+- **Fill-Time Factor**, per-terminus dwell time before a vehicle departs (varies 2–25 min depending on time of day, route, and demand). Stored as a rolling average from GPS data once the IoT layer is live.
+- **Mshukiwa Factor**, per-segment travel-time multiplier for roadside loading and alighting at non-official stops on high-demand corridors (Ngong Road, Thika Road, Mombasa Road).
 
 The long-term roadmap includes a full GTFS-RT loop: IoT GPS devices → MQTT ingestion → live vehicle positions → OTP real-time feed → accurate departure predictions in the passenger app.
 
