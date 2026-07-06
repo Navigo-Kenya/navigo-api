@@ -54,16 +54,20 @@ class KwameMemoryService
         }
 
         // Stated preferences / durable facts.
-        $memories = UserMemory::where('user_id', $user->id)
-            ->orderByDesc('last_used_at')
-            ->orderByDesc('updated_at')
-            ->limit(self::PROMPT_MEMORY_CAP)
-            ->get();
-        foreach ($memories as $m) {
-            $lines[] = '- ' . $m->content;
-        }
-        if ($memories->isNotEmpty()) {
-            UserMemory::whereIn('id', $memories->pluck('id'))->update(['last_used_at' => now()]);
+        try {
+            $memories = UserMemory::where('user_id', $user->id)
+                ->orderByDesc('last_used_at')
+                ->orderByDesc('updated_at')
+                ->limit(self::PROMPT_MEMORY_CAP)
+                ->get();
+            foreach ($memories as $m) {
+                $lines[] = '- ' . $m->content;
+            }
+            if ($memories->isNotEmpty()) {
+                UserMemory::whereIn('id', $memories->pluck('id'))->update(['last_used_at' => now()]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('KwameMemory: user_memories query failed: ' . $e->getMessage());
         }
 
         if (empty($lines)) return null;

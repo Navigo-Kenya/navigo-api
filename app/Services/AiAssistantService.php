@@ -342,9 +342,13 @@ class AiAssistantService
 
         // ── Persistent user memory (authenticated users only) ─────────────────
         if ($memoryUser = auth('sanctum')->user()) {
-            $memoryBlock = $this->memory->buildMemoryBlock($memoryUser);
-            if ($memoryBlock) {
-                $systemPrompt .= "\n\n" . $memoryBlock;
+            try {
+                $memoryBlock = $this->memory->buildMemoryBlock($memoryUser);
+                if ($memoryBlock) {
+                    $systemPrompt .= "\n\n" . $memoryBlock;
+                }
+            } catch (\Throwable $e) {
+                Log::warning('KwameMemory: buildMemoryBlock failed: ' . $e->getMessage());
             }
         }
 
